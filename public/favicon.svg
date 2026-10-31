@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="112" fill="#0A0A0A"/>
+  <g stroke="#39FF14" stroke-width="16" stroke-linecap="round">
+    <line x1="168" y1="118" x2="138" y2="82"/>
+    <line x1="214" y1="92" x2="200" y2="52"/>
+    <line x1="298" y1="92" x2="312" y2="52"/>
+    <line x1="344" y1="118" x2="374" y2="82"/>
+  </g>
+  <ellipse cx="250" cy="312" rx="148" ry="112" fill="#fff"/>
+  <ellipse cx="378" cy="300" rx="62" ry="52" fill="#fff"/>
+  <ellipse cx="422" cy="306" rx="28" ry="24" fill="#fff"/>
+  <path d="M292 190 L328 128 L360 196 Z" fill="#fff"/>
+  <rect x="178" y="398" width="48" height="58" rx="12" fill="#fff"/>
+  <rect x="268" y="398" width="48" height="58" rx="12" fill="#fff"/>
+  <path d="M108 308 C76 298, 66 268, 88 248" stroke="#fff" stroke-width="24" stroke-linecap="round" fill="none"/>
+  <circle cx="354" cy="274" r="14" fill="#0A0A0A"/>
+  <circle cx="412" cy="302" r="5" fill="#0A0A0A"/>
+  <circle cx="428" cy="302" r="5" fill="#0A0A0A"/>
+  <path d="M198 214 L220 198 L292 198 L314 214 L292 230 L220 230 Z" fill="#0A0A0A"/>
+  <circle cx="256" cy="168" r="58" fill="#39FF14"/>
+  <text x="256" y="190" text-anchor="middle" font-family="system-ui,sans-serif" font-size="72" font-weight="800" fill="#0A0A0A">$</text>
+</svg>

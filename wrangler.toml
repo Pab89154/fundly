@@ -1,0 +1,18 @@
+name = "my-money-tracker"
+main = "worker/index.ts"
+compatibility_date = "2025-10-01"
+
+# Secrets (never commit real values):
+#   wrangler secret put PRINTX_MONEY_TRACKER_API_KEY
+#   wrangler secret put MONEY_TRACKER_WEBHOOK_HMAC_SECRET
+# Optional var:
+#   PRINTX_API_BASE = "https://printx.pw"
+
+[vars]
+PRINTX_API_BASE = "https://printx.pw"
+
+# Uncomment after first build when deploying privately:
+# [assets]
+# directory = "./dist"
+# binding = "ASSETS"
+# not_found_handling = "single-page-application"
