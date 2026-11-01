@@ -143,10 +143,10 @@ export function allowanceTotalCents(transactions: Transaction[]): number {
     .reduce((s, t) => s + Math.abs(t.amountCents), 0)
 }
 
-/** Manual business income (e.g. NFC Bracelets) — allocation sum when present. */
+/** Manual business income — allocation sum when present. */
 export function businessEarningsCents(
   transactions: Transaction[],
-  source: 'nfc_bracelets',
+  source: string,
   opts?: { since?: Date },
 ): number {
   let sum = 0

@@ -6,35 +6,46 @@ import { allocateCents, formatUsd, toCents } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import type { IncomeSource, PrintxPaySource } from '../types'
 
-const INCOME_SOURCES: Array<{ value: IncomeSource; label: string }> = [
-  { value: 'printx', label: 'PrintX' },
-  { value: 'nfc_bracelets', label: 'NFC Bracelets' },
-  { value: 'allowance', label: 'Allowance' },
-  { value: 'other', label: 'Other' },
-]
-
-function parseSourceParam(raw: string | null): IncomeSource {
-  if (raw === 'nfc_bracelets' || raw === 'printx' || raw === 'allowance' || raw === 'other') return raw
-  return 'printx'
-}
-
 export function AddIncome() {
   const { addIncome, state } = useMoney()
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const initialSource = useMemo(() => parseSourceParam(params.get('source')), [params])
+
+  const incomeSources = useMemo(() => {
+    const businesses = state.settings.businesses.map((b) => ({
+      value: b.id,
+      label: b.name,
+    }))
+    return [
+      { value: 'printx', label: 'PrintX' },
+      ...businesses,
+      { value: 'allowance', label: 'Allowance' },
+      { value: 'other', label: 'Other' },
+    ]
+  }, [state.settings.businesses])
+
+  const allowed = useMemo(() => new Set(incomeSources.map((s) => s.value)), [incomeSources])
+
+  const initialSource = useMemo(() => {
+    const raw = params.get('source')
+    if (raw && allowed.has(raw)) return raw
+    return 'printx'
+  }, [params, allowed])
+
   const [amount, setAmount] = useState('')
   const [source, setSource] = useState<IncomeSource>(initialSource)
   const [printxSource, setPrintxSource] = useState<PrintxPaySource>('cash')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
-  const [description, setDescription] = useState(
-    initialSource === 'nfc_bracelets' ? 'NFC Bracelet sale' : '',
-  )
+  const [description, setDescription] = useState(() => {
+    const biz = state.settings.businesses.find((b) => b.id === initialSource)
+    return biz ? `${biz.name} sale` : ''
+  })
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
 
   const cents = toCents(Number(amount) || 0)
   const preview = allocateCents(cents, state.settings.allocation)
+  const selectedBusiness = state.settings.businesses.find((b) => b.id === source)
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -51,10 +62,9 @@ export function AddIncome() {
       setError(res.error)
       return
     }
-    setOk('Income saved and split across all four balances.')
+    setOk('Income saved and split into your pots.')
     setAmount('')
-    setDescription('')
-    setTimeout(() => navigate('/'), 600)
+    navigate('/')
   }
 
   return (
@@ -102,20 +112,19 @@ export function AddIncome() {
             onChange={(v) => {
               const next = v as IncomeSource
               setSource(next)
-              if (next === 'nfc_bracelets' && !description.trim()) {
-                setDescription('NFC Bracelet sale')
+              const biz = state.settings.businesses.find((b) => b.id === next)
+              if (biz && !description.trim()) {
+                setDescription(`${biz.name} sale`)
               }
             }}
-            options={INCOME_SOURCES}
+            options={incomeSources}
           />
         </div>
         {source === 'printx' ? (
           <div>
-            <label className="label" htmlFor="px">
-              PrintX payment type
-            </label>
+            <label className="label">PrintX pay type</label>
             <NativeSelect
-              aria-label="PrintX payment type"
+              aria-label="PrintX pay type"
               value={printxSource}
               onChange={(v) => setPrintxSource(v as PrintxPaySource)}
               options={[
@@ -125,9 +134,10 @@ export function AddIncome() {
             />
           </div>
         ) : null}
-        {source === 'nfc_bracelets' ? (
+        {selectedBusiness ? (
           <p className="text-sm text-[var(--muted)]">
-            Manual only — enter each NFC Bracelet sale yourself (no API sync).
+            Counted under <span className="font-semibold text-[var(--text)]">{selectedBusiness.name}</span>
+            . Manage businesses in Settings.
           </p>
         ) : null}
         <div>
@@ -145,7 +155,7 @@ export function AddIncome() {
         </div>
         <div>
           <label className="label" htmlFor="desc">
-            Description (optional)
+            Description
           </label>
           <input
             id="desc"
@@ -153,8 +163,8 @@ export function AddIncome() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={
-              source === 'nfc_bracelets'
-                ? 'NFC Bracelet sale'
+              selectedBusiness
+                ? `${selectedBusiness.name} sale`
                 : source === 'printx'
                   ? 'Weekly PrintX sales'
                   : 'What was this for?'

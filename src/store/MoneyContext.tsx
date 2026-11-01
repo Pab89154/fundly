@@ -27,6 +27,7 @@ import {
   createEmptyState,
   goalTargetCents,
   normalizeActiveGoal,
+  normalizeBusinesses,
   type AppState,
   type IncomeSource,
   type PrintxFeedEvent,
@@ -238,6 +239,7 @@ export function MoneyProvider({
             allocation: normalizeAllocationPct(remote.state.settings.allocation),
             activeGoal,
             goalCents: activeGoal?.targetCents ?? 0,
+            businesses: normalizeBusinesses(remote.state.settings.businesses),
             printxOpenOwedCents: Number(remote.state.settings.printxOpenOwedCents) || 0,
             printxOpenResolvedCents: Number(remote.state.settings.printxOpenResolvedCents) || 0,
             printxLastResolvedCents: Number(remote.state.settings.printxLastResolvedCents) || 0,
@@ -440,6 +442,9 @@ export function MoneyProvider({
           updatedAt: new Date().toISOString(),
         }
         next.goalCents = next.activeGoal.targetCents
+      }
+      if ('businesses' in patch) {
+        next.businesses = normalizeBusinesses(patch.businesses ?? [])
       }
       return { ...prev, settings: next }
     })

@@ -149,12 +149,15 @@ export function Dashboard() {
           accent="blue"
           icon={<Store size={16} aria-hidden />}
         />
-        <StatCard
-          label="NFC Bracelets"
-          value={formatUsd(businessEarningsCents(state.transactions, 'nfc_bracelets'))}
-          accent="orange"
-          icon={<Watch size={16} aria-hidden />}
-        />
+        {state.settings.businesses.map((b) => (
+          <StatCard
+            key={b.id}
+            label={b.name}
+            value={formatUsd(businessEarningsCents(state.transactions, b.id))}
+            accent="orange"
+            icon={<Watch size={16} aria-hidden />}
+          />
+        ))}
         <StatCard
           label="Allowance received"
           value={formatUsd(allowanceTotalCents(state.transactions))}

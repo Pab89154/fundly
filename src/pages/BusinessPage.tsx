@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import { PlusCircle, Watch } from 'lucide-react'
+import { Link, Navigate, useParams } from 'react-router-dom'
+import { Briefcase, PlusCircle } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -14,17 +14,19 @@ import { useMoney } from '../store/MoneyContext'
 import { formatUsd, fromCents } from '../lib/money'
 import { businessEarningsCents, startOfMonth, startOfWeek } from '../lib/balances'
 
-export function NfcBraceletsPage() {
+export function BusinessPage() {
+  const { businessId = '' } = useParams()
   const { state } = useMoney()
+  const business = state.settings.businesses.find((b) => b.id === businessId)
 
-  const week = businessEarningsCents(state.transactions, 'nfc_bracelets', { since: startOfWeek() })
-  const month = businessEarningsCents(state.transactions, 'nfc_bracelets', { since: startOfMonth() })
-  const life = businessEarningsCents(state.transactions, 'nfc_bracelets')
+  const week = businessEarningsCents(state.transactions, businessId, { since: startOfWeek() })
+  const month = businessEarningsCents(state.transactions, businessId, { since: startOfMonth() })
+  const life = businessEarningsCents(state.transactions, businessId)
 
   const weeklyChart = useMemo(() => {
     const map = new Map<string, number>()
     for (const tx of state.transactions) {
-      if (tx.source !== 'nfc_bracelets') continue
+      if (tx.source !== businessId) continue
       if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
       const d = new Date(tx.date)
       const weekStart = new Date(d)
@@ -45,27 +47,31 @@ export function NfcBraceletsPage() {
         week: weekStart.slice(5),
         usd: fromCents(cents),
       }))
-  }, [state.transactions])
+  }, [state.transactions, businessId])
 
   const recent = state.transactions
-    .filter((t) => t.source === 'nfc_bracelets')
+    .filter((t) => t.source === businessId)
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
     .slice(0, 20)
+
+  if (!business) {
+    return <Navigate to="/settings" replace />
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-3xl font-extrabold tracking-tight">
-            <Watch size={28} className="text-[var(--orange)]" aria-hidden />
-            NFC Bracelets
+            <Briefcase size={28} className="text-[var(--orange)]" aria-hidden />
+            {business.name}
           </h2>
           <p className="mt-2 text-[var(--muted)]">
-            Your second business — enter sales by hand (no automatic sync).
+            {business.note?.trim() || 'Enter sales by hand — money splits across your pots.'}
           </p>
         </div>
-        <Link to="/income?source=nfc_bracelets" className="btn btn-primary">
+        <Link to={`/income?source=${encodeURIComponent(business.id)}`} className="btn btn-primary">
           <PlusCircle size={16} aria-hidden />
           Add sale
         </Link>
@@ -89,7 +95,7 @@ export function NfcBraceletsPage() {
       <div className="card p-5">
         <h3 className="mb-4 font-bold">Weekly sales</h3>
         {weeklyChart.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">No NFC Bracelet sales yet — tap Add sale.</p>
+          <p className="text-sm text-[var(--muted)]">No sales yet — tap Add sale.</p>
         ) : (
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
@@ -113,7 +119,7 @@ export function NfcBraceletsPage() {
 
       <div className="card overflow-hidden">
         <div className="border-b border-[var(--border)] px-5 py-3">
-          <h3 className="font-bold">Recent NFC Bracelet income</h3>
+          <h3 className="font-bold">Recent {business.name} income</h3>
         </div>
         <ul className="divide-y divide-[var(--border)]">
           {recent.length === 0 ? (
@@ -122,7 +128,7 @@ export function NfcBraceletsPage() {
             recent.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div>
-                  <p className="font-semibold">{t.description || 'NFC Bracelet sale'}</p>
+                  <p className="font-semibold">{t.description || `${business.name} sale`}</p>
                   <p className="text-sm text-[var(--muted)]">{t.date}</p>
                 </div>
                 <p className="font-extrabold">{formatUsd(t.amountCents)}</p>

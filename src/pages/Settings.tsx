@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  Briefcase,
   CloudUpload,
   Download,
   Lock,
@@ -15,7 +16,12 @@ import { fromCents, isValidAllocationPct, toCents } from '../lib/money'
 import { downloadCsv, transactionsToCsv } from '../lib/csv'
 import { NativeSelect } from '../components/NativeSelect'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import type { ActiveGoal } from '../types'
+import {
+  isReservedBusinessId,
+  slugifyBusinessId,
+  type ActiveGoal,
+  type Business,
+} from '../types'
 
 export function Settings() {
   const { state, updateSettings, resetAllData, cloud } = useMoney()
@@ -41,6 +47,11 @@ export function Settings() {
   const [cloudBusy, setCloudBusy] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmDeleteGoal, setConfirmDeleteGoal] = useState(false)
+  const [confirmDeleteBusinessId, setConfirmDeleteBusinessId] = useState<string | null>(null)
+  const [bizEditingId, setBizEditingId] = useState<string | null>(null)
+  const [bizCreating, setBizCreating] = useState(false)
+  const [bizName, setBizName] = useState('')
+  const [bizNote, setBizNote] = useState('')
 
   useEffect(() => {
     const g = state.settings.activeGoal
@@ -95,6 +106,102 @@ export function Settings() {
     setMsg('Goal deleted. You can create a new one anytime.')
   }
 
+  const startCreateBusiness = () => {
+    setBizCreating(true)
+    setBizEditingId(null)
+    setBizName('')
+    setBizNote('')
+    setErr('')
+    setMsg('')
+  }
+
+  const startEditBusiness = (b: Business) => {
+    setBizCreating(false)
+    setBizEditingId(b.id)
+    setBizName(b.name)
+    setBizNote(b.note)
+    setErr('')
+    setMsg('')
+  }
+
+  const cancelBusinessForm = () => {
+    setBizCreating(false)
+    setBizEditingId(null)
+    setBizName('')
+    setBizNote('')
+  }
+
+  const saveBusiness = (e: React.FormEvent) => {
+    e.preventDefault()
+    setErr('')
+    setMsg('')
+    const name = bizName.trim()
+    if (!name) {
+      setErr('Give the business a name.')
+      return
+    }
+    const list = [...state.settings.businesses]
+    const now = new Date().toISOString()
+
+    if (bizEditingId) {
+      const idx = list.findIndex((b) => b.id === bizEditingId)
+      if (idx < 0) {
+        setErr('Business not found.')
+        return
+      }
+      list[idx] = {
+        ...list[idx]!,
+        name,
+        note: bizNote.trim(),
+        updatedAt: now,
+      }
+      const res = updateSettings({ businesses: list })
+      if (!res.ok) {
+        setErr(res.error)
+        return
+      }
+      cancelBusinessForm()
+      setMsg('Business updated.')
+      return
+    }
+
+    let id = slugifyBusinessId(name)
+    if (isReservedBusinessId(id) && id !== 'nfc_bracelets') {
+      setErr('That name conflicts with a built-in source. Pick another.')
+      return
+    }
+    if (list.some((b) => b.id === id)) {
+      id = `${id}_${Date.now().toString(36).slice(-4)}`
+    }
+    list.push({
+      id,
+      name,
+      note: bizNote.trim(),
+      createdAt: now,
+    })
+    const res = updateSettings({ businesses: list })
+    if (!res.ok) {
+      setErr(res.error)
+      return
+    }
+    cancelBusinessForm()
+    setMsg(`Business “${name}” created.`)
+  }
+
+  const deleteBusiness = () => {
+    const id = confirmDeleteBusinessId
+    setConfirmDeleteBusinessId(null)
+    if (!id) return
+    const list = state.settings.businesses.filter((b) => b.id !== id)
+    const res = updateSettings({ businesses: list })
+    if (!res.ok) {
+      setErr(res.error)
+      return
+    }
+    if (bizEditingId === id) cancelBusinessForm()
+    setMsg('Business removed. Past sales stay in Transactions.')
+  }
+
   const save = (e: React.FormEvent) => {
     e.preventDefault()
     setErr('')
@@ -144,7 +251,7 @@ export function Settings() {
           Settings
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          One goal at a time · split, theme, export, and reset.
+          Goal, businesses, split, theme, export, and reset.
         </p>
       </header>
 
@@ -249,6 +356,98 @@ export function Settings() {
             </div>
           </form>
         )}
+      </section>
+
+      <section className="card space-y-4 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+              <Briefcase size={18} className="text-[var(--orange)]" aria-hidden />
+              Businesses
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Manual income sources (NFC Bracelets, lemonade stand, …). PrintX stays separate with
+              Sync.
+            </p>
+          </div>
+          {!bizCreating && !bizEditingId ? (
+            <button type="button" className="btn btn-secondary" onClick={startCreateBusiness}>
+              <Plus size={16} aria-hidden />
+              Add business
+            </button>
+          ) : null}
+        </div>
+
+        {state.settings.businesses.length === 0 && !bizCreating ? (
+          <p className="text-sm text-[var(--muted)]">No businesses yet — add one to track sales.</p>
+        ) : (
+          <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
+            {state.settings.businesses.map((b) => (
+              <li
+                key={b.id}
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold">{b.name}</p>
+                  {b.note ? <p className="text-sm text-[var(--muted)]">{b.note}</p> : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-secondary px-3 py-1.5 text-xs"
+                    onClick={() => startEditBusiness(b)}
+                  >
+                    <Pencil size={14} aria-hidden />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger px-3 py-1.5 text-xs"
+                    onClick={() => setConfirmDeleteBusinessId(b.id)}
+                  >
+                    <Trash2 size={14} aria-hidden />
+                    Remove
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {bizCreating || bizEditingId ? (
+          <form className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-4" onSubmit={saveBusiness}>
+            <p className="text-sm font-semibold">
+              {bizEditingId ? 'Edit business' : 'New business'}
+            </p>
+            <div>
+              <label className="label">Name</label>
+              <input
+                className="field"
+                value={bizName}
+                onChange={(e) => setBizName(e.target.value)}
+                placeholder="NFC Bracelets, lemonade stand…"
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Note (optional)</label>
+              <input
+                className="field"
+                value={bizNote}
+                onChange={(e) => setBizNote(e.target.value)}
+                placeholder="How you track this business"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" className="btn btn-primary">
+                {bizEditingId ? 'Save business' : 'Create business'}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={cancelBusinessForm}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : null}
       </section>
 
       <form className="card space-y-4 p-5" onSubmit={save}>
@@ -443,6 +642,15 @@ export function Settings() {
         danger
         onCancel={() => setConfirmDeleteGoal(false)}
         onConfirm={deleteGoal}
+      />
+      <ConfirmDialog
+        open={Boolean(confirmDeleteBusinessId)}
+        title="Remove this business?"
+        message="It leaves the nav and income list. Past sales stay in Transactions under the old name."
+        confirmLabel="Remove business"
+        danger
+        onCancel={() => setConfirmDeleteBusinessId(null)}
+        onConfirm={deleteBusiness}
       />
     </div>
   )

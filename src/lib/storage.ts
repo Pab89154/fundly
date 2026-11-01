@@ -2,6 +2,7 @@ import { normalizeAllocationPct } from './money'
 import {
   createEmptyState,
   normalizeActiveGoal,
+  normalizeBusinesses,
   STORAGE_KEY,
   type AppState,
 } from '../types'
@@ -23,6 +24,7 @@ export function loadState(): AppState {
         allocation: normalizeAllocationPct(parsed.settings.allocation),
         activeGoal,
         goalCents: activeGoal?.targetCents ?? 0,
+        businesses: normalizeBusinesses(parsed.settings.businesses),
         importedEventIds: parsed.settings.importedEventIds ?? [],
         celebratedMilestones: parsed.settings.celebratedMilestones ?? [],
         printxOpenOwedCents: Number(parsed.settings.printxOpenOwedCents) || 0,

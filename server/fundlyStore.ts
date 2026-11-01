@@ -30,6 +30,14 @@ function emptyState(): AppStateJson {
       syncCursor: null,
       importedEventIds: [],
       celebratedMilestones: [],
+      businesses: [
+        {
+          id: 'nfc_bracelets',
+          name: 'NFC Bracelets',
+          note: 'Enter sales by hand (no automatic sync).',
+          createdAt: '1970-01-01T00:00:00.000Z',
+        },
+      ],
       printxOpenOwedCents: 0,
       printxOpenResolvedCents: 0,
       printxLastResolvedCents: 0,

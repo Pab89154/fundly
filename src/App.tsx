@@ -10,7 +10,7 @@ import { Spending } from './pages/Spending'
 import { Savings } from './pages/Savings'
 import { AppleCash } from './pages/AppleCash'
 import { PrintXPage } from './pages/PrintXPage'
-import { NfcBraceletsPage } from './pages/NfcBraceletsPage'
+import { BusinessPage } from './pages/BusinessPage'
 import { Transactions } from './pages/Transactions'
 import { ImportStatement } from './pages/ImportStatement'
 import { Settings } from './pages/Settings'
@@ -39,7 +39,8 @@ function AppRoutes() {
         <Route path="savings" element={<Savings />} />
         <Route path="apple-cash" element={<AppleCash />} />
         <Route path="printx" element={<PrintXPage />} />
-        <Route path="nfc-bracelets" element={<NfcBraceletsPage />} />
+        <Route path="business/:businessId" element={<BusinessPage />} />
+        <Route path="nfc-bracelets" element={<Navigate to="/business/nfc_bracelets" replace />} />
         <Route path="transactions" element={<Transactions />} />
         <Route path="import" element={<ImportStatement />} />
         <Route path="settings" element={<Settings />} />

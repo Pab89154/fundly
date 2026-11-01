@@ -10,7 +10,70 @@ export type TxType =
   | 'reconcile'
   | 'apple_cash_purchase'
 
-export type IncomeSource = 'printx' | 'nfc_bracelets' | 'allowance' | 'other' | 'opening'
+/** Built-ins plus any custom business id from Settings. */
+export type IncomeSource = string
+
+export const SYSTEM_INCOME_SOURCES = ['printx', 'allowance', 'other', 'opening'] as const
+
+/** Manual business (NFC Bracelets, lemonade stand, …) — managed in Settings. */
+export interface Business {
+  id: string
+  name: string
+  note: string
+  createdAt: string
+  updatedAt?: string
+}
+
+export const DEFAULT_BUSINESSES: Business[] = [
+  {
+    id: 'nfc_bracelets',
+    name: 'NFC Bracelets',
+    note: 'Enter sales by hand (no automatic sync).',
+    createdAt: '1970-01-01T00:00:00.000Z',
+  },
+]
+
+export function slugifyBusinessId(name: string): string {
+  const base = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40)
+  return base || 'business'
+}
+
+export function isReservedBusinessId(id: string): boolean {
+  return (SYSTEM_INCOME_SOURCES as readonly string[]).includes(id) || id === 'nfc' || !id
+}
+
+export function normalizeBusinesses(raw: unknown): Business[] {
+  if (!Array.isArray(raw)) return DEFAULT_BUSINESSES.map((b) => ({ ...b }))
+  const out: Business[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    let id = String(o.id || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '')
+    const name = String(o.name || '').trim()
+    if (!name) continue
+    if (!id) id = slugifyBusinessId(name)
+    if (isReservedBusinessId(id) && id !== 'nfc_bracelets') continue
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({
+      id,
+      name,
+      note: String(o.note || ''),
+      createdAt: String(o.createdAt || new Date().toISOString()),
+      updatedAt: o.updatedAt ? String(o.updatedAt) : undefined,
+    })
+  }
+  return out
+}
 
 export type PrintxPaySource = 'stripe' | 'cash'
 
@@ -64,6 +127,8 @@ export interface Settings {
   goalCents: number
   /** Single current goal; create/edit/delete in Settings. */
   activeGoal: ActiveGoal | null
+  /** Manual businesses (not PrintX) — create/edit/delete in Settings. */
+  businesses: Business[]
   allocation: AllocationPct
   weeklyAllowanceCents: number
   expectedPrintxWeeklyCents: number
@@ -146,6 +211,7 @@ export const DEFAULT_SETTINGS: Settings = {
   syncCursor: null,
   importedEventIds: [],
   celebratedMilestones: [],
+  businesses: DEFAULT_BUSINESSES.map((b) => ({ ...b })),
   printxOpenOwedCents: 0,
   printxOpenResolvedCents: 0,
   printxLastResolvedCents: 0,
@@ -202,8 +268,10 @@ export function createEmptyState(): AppState {
       allocation: { ...DEFAULT_SETTINGS.allocation },
       activeGoal,
       goalCents: activeGoal?.targetCents ?? 0,
+      businesses: DEFAULT_BUSINESSES.map((b) => ({ ...b })),
       importedEventIds: [],
       celebratedMilestones: [],
+      printxIgnoredEventIds: [],
     },
     transactions: [],
   }

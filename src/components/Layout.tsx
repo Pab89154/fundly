@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -7,7 +7,7 @@ import {
   PiggyBank,
   Wallet,
   Store,
-  Watch,
+  Briefcase,
   History,
   FileText,
   Settings,
@@ -19,24 +19,21 @@ import { CelebrationModal } from './CelebrationModal'
 import { FundlyLogo } from './FundlyLogo'
 import { useMoney } from '../store/MoneyContext'
 
-const nav = [
+type NavItem = { to: string; label: string; icon: typeof LayoutDashboard }
+
+const coreNav: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/income', label: 'Add Income', icon: PlusCircle },
   { to: '/spending', label: 'Spending', icon: ShoppingBag },
   { to: '/savings', label: 'Savings', icon: PiggyBank },
   { to: '/apple-cash', label: 'Apple Cash', icon: Wallet },
   { to: '/printx', label: 'PrintX', icon: Store },
-  { to: '/nfc-bracelets', label: 'NFC Bracelets', icon: Watch },
   { to: '/transactions', label: 'Transactions', icon: History },
   { to: '/import', label: 'Import', icon: FileText },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
-/** Primary tabs for cover + open Duo phones (no horizontal scroll). */
-const mobilePrimary = nav.filter((item) =>
-  ['/', '/income', '/spending', '/savings', '/printx'].includes(item.to),
-)
-const mobileMore = nav.filter((item) => !mobilePrimary.some((p) => p.to === item.to))
+const mobilePrimaryPaths = new Set(['/', '/income', '/spending', '/savings', '/printx'])
 
 export function Layout() {
   const { cloud, state } = useMoney()
@@ -50,6 +47,26 @@ export function Layout() {
         maximumFractionDigits: 0,
       })}`
     : 'Set a goal in Settings'
+
+  const businessNav: NavItem[] = useMemo(
+    () =>
+      state.settings.businesses.map((b) => ({
+        to: `/business/${b.id}`,
+        label: b.name,
+        icon: Briefcase,
+      })),
+    [state.settings.businesses],
+  )
+
+  const nav = useMemo(() => {
+    const printxIdx = coreNav.findIndex((n) => n.to === '/printx')
+    const before = coreNav.slice(0, printxIdx + 1)
+    const after = coreNav.slice(printxIdx + 1)
+    return [...before, ...businessNav, ...after]
+  }, [businessNav])
+
+  const mobilePrimary = nav.filter((item) => mobilePrimaryPaths.has(item.to))
+  const mobileMore = nav.filter((item) => !mobilePrimaryPaths.has(item.to))
 
   const moreActive = mobileMore.some(
     (item) =>
@@ -113,7 +130,6 @@ export function Layout() {
         </main>
       </div>
 
-      {/* Cover (5.4") + open (7.6") phones: 5 tabs + More — no sideways scroll */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-3xl items-stretch gap-0.5 px-1 py-1.5">
           {mobilePrimary.map(({ to, label, icon: Icon }) => (

@@ -230,7 +230,10 @@ export function ImportStatement() {
                     onChange={(v) => updateRow(r.id, { source: v as IncomeSource })}
                     options={[
                       { value: 'printx', label: 'PrintX' },
-                      { value: 'nfc_bracelets', label: 'NFC Bracelets' },
+                      ...state.settings.businesses.map((b) => ({
+                        value: b.id,
+                        label: b.name,
+                      })),
                       { value: 'allowance', label: 'Allowance' },
                       { value: 'other', label: 'Other' },
                     ]}
