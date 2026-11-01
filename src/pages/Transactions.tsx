@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { FileText, History } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import { formatUsd } from '../lib/money'
+import { NativeSelect } from '../components/NativeSelect'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { TxType } from '../types'
 
 const types: Array<TxType | 'all'> = [
@@ -25,6 +27,7 @@ export function Transactions() {
   const [editAmount, setEditAmount] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [msg, setMsg] = useState('')
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const rows = useMemo(() => {
     const qq = q.trim().toLowerCase()
@@ -92,13 +95,13 @@ export function Transactions() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select className="field sm:max-w-xs" value={type} onChange={(e) => setType(e.target.value as typeof type)}>
-          {types.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+        <NativeSelect
+          className="sm:max-w-xs"
+          aria-label="Transaction type"
+          value={type}
+          onChange={(v) => setType(v as typeof type)}
+          options={types.map((t) => ({ value: t, label: t }))}
+        />
       </div>
 
       {msg ? <p className="text-sm text-[var(--green)]">{msg}</p> : null}
@@ -145,8 +148,9 @@ export function Transactions() {
                       </p>
                       {t.allocation ? (
                         <p className="mt-1 text-xs text-[var(--muted)]">
-                          iPhone {formatUsd(t.allocation.iphone)} · Spending{' '}
-                          {formatUsd(t.allocation.spending)} · Extra {formatUsd(t.allocation.extra)}
+                          Goal {formatUsd(t.allocation.iphone)} · Spending{' '}
+                          {formatUsd(t.allocation.spending)} · Extra {formatUsd(t.allocation.extra)}{' '}
+                          · Charity {formatUsd(t.allocation.charity ?? 0)}
                         </p>
                       ) : null}
                     </div>
@@ -159,12 +163,7 @@ export function Transactions() {
                         <button
                           type="button"
                           className="btn btn-danger px-3 py-1 text-xs"
-                          onClick={() => {
-                            if (confirm('Delete this transaction? Balances will update.')) {
-                              deleteTransaction(t.id)
-                              setMsg('Deleted.')
-                            }
-                          }}
+                          onClick={() => setDeleteId(t.id)}
                         >
                           Delete
                         </button>
@@ -177,6 +176,22 @@ export function Transactions() {
           )}
         </ul>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(deleteId)}
+        title="Delete this transaction?"
+        message="Balances will update right away. This cannot be undone."
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setDeleteId(null)}
+        onConfirm={() => {
+          if (deleteId) {
+            deleteTransaction(deleteId)
+            setMsg('Deleted.')
+          }
+          setDeleteId(null)
+        }}
+      />
     </div>
   )
 }

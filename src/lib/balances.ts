@@ -1,29 +1,37 @@
 import type { Balances, Transaction } from '../types'
 import type { AccountId } from './money'
+import { normalizeAllocationCents, sumAllocation } from './money'
 
 export function computeBalances(transactions: Transaction[]): Balances {
   let iphone = 0
   let spending = 0
   let extra = 0
+  let charity = 0
 
   const add = (account: AccountId, cents: number) => {
     if (account === 'iphone') iphone += cents
     else if (account === 'spending') spending += cents
+    else if (account === 'charity') charity += cents
     else extra += cents
   }
 
   for (const tx of transactions) {
+    // Synced PrintX payouts with settledAt: null wait for Mark settled in Savings.
+    // Legacy rows without settledAt still count; manual PrintX income counts immediately.
+    if (tx.settledAt === null) continue
+
     switch (tx.type) {
       case 'income':
       case 'import':
       case 'opening':
       case 'refund':
       case 'reconcile': {
-        const a = tx.allocation
+        const a = tx.allocation ? normalizeAllocationCents(tx.allocation) : null
         if (a) {
           iphone += a.iphone
           spending += a.spending
           extra += a.extra
+          charity += a.charity
         }
         break
       }
@@ -47,7 +55,8 @@ export function computeBalances(transactions: Transaction[]): Balances {
     iphone,
     spending,
     extra,
-    combined: iphone + spending + extra,
+    charity,
+    combined: iphone + spending + extra + charity,
   }
 }
 
@@ -92,19 +101,35 @@ function isPrintxTx(tx: Transaction): boolean {
   return tx.source === 'printx'
 }
 
-/** PrintX earnings: income/import add allocation sum; refunds use signed allocation. */
+/** PrintX earnings that count in pots (settled only). */
 export function printxEarningsCents(
   transactions: Transaction[],
-  opts?: { since?: Date; printxSource?: 'stripe' | 'cash' },
+  opts?: { since?: Date; printxSource?: 'stripe' | 'cash'; includeUnsettled?: boolean },
 ): number {
   let sum = 0
   for (const tx of transactions) {
     if (!isPrintxTx(tx)) continue
     if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
+    if (!opts?.includeUnsettled && tx.settledAt === null) continue
     if (opts?.printxSource && tx.printxSource !== opts.printxSource) continue
     if (opts?.since && new Date(tx.date) < opts.since) continue
     if (tx.allocation) {
-      sum += tx.allocation.iphone + tx.allocation.spending + tx.allocation.extra
+      sum += sumAllocation(normalizeAllocationCents(tx.allocation))
+    } else {
+      sum += tx.type === 'refund' ? -Math.abs(tx.amountCents) : Math.abs(tx.amountCents)
+    }
+  }
+  return sum
+}
+
+export function printxUnsettledCents(transactions: Transaction[]): number {
+  let sum = 0
+  for (const tx of transactions) {
+    if (!isPrintxTx(tx)) continue
+    if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
+    if (tx.settledAt !== null) continue
+    if (tx.allocation) {
+      sum += sumAllocation(normalizeAllocationCents(tx.allocation))
     } else {
       sum += tx.type === 'refund' ? -Math.abs(tx.amountCents) : Math.abs(tx.amountCents)
     }
@@ -116,6 +141,26 @@ export function allowanceTotalCents(transactions: Transaction[]): number {
   return transactions
     .filter((t) => t.type === 'income' && t.source === 'allowance')
     .reduce((s, t) => s + Math.abs(t.amountCents), 0)
+}
+
+/** Manual business income (e.g. NFC Bracelets) — allocation sum when present. */
+export function businessEarningsCents(
+  transactions: Transaction[],
+  source: 'nfc_bracelets',
+  opts?: { since?: Date },
+): number {
+  let sum = 0
+  for (const tx of transactions) {
+    if (tx.source !== source) continue
+    if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
+    if (opts?.since && new Date(tx.date) < opts.since) continue
+    if (tx.allocation) {
+      sum += sumAllocation(normalizeAllocationCents(tx.allocation))
+    } else {
+      sum += tx.type === 'refund' ? -Math.abs(tx.amountCents) : Math.abs(tx.amountCents)
+    }
+  }
+  return sum
 }
 
 export function printxManualOrImportTotal(transactions: Transaction[]): number {

@@ -3,24 +3,30 @@ import {
   AlertTriangle,
   CheckCircle2,
   CalendarDays,
+  Heart,
   PiggyBank,
-  Smartphone,
+  Target,
   Store,
+  Watch,
   Wallet,
 } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import { formatUsd, fromCents } from '../lib/money'
 import {
   allowanceTotalCents,
+  businessEarningsCents,
   estimateGoalDate,
   printxEarningsCents,
   weekNumber,
 } from '../lib/balances'
 import { StatCard } from '../components/StatCard'
+import { goalName, goalTargetCents } from '../types'
 
 export function Dashboard() {
   const { state, balances } = useMoney()
-  const goal = state.settings.goalCents
+  const active = state.settings.activeGoal
+  const name = goalName(state.settings)
+  const goal = goalTargetCents(state.settings)
   const saved = balances.iphone
   const remaining = Math.max(0, goal - saved)
   const pct = goal > 0 ? Math.min(100, Math.round((saved / goal) * 1000) / 10) : 0
@@ -51,16 +57,35 @@ export function Dashboard() {
         </p>
         <h2 className="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">Dashboard</h2>
         <p className="mt-2 max-w-2xl text-[var(--muted)]">
-          Save for your iPhone Duo while keeping spending money and extra savings in sync.
+          {active
+            ? `Working toward ${name} while keeping spending, extra, and charity in sync.`
+            : 'Set a goal in Settings to track progress — pots still work without one.'}
         </p>
       </header>
 
       <section className="card animate-in p-5 sm:p-7">
+        {!active ? (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold text-[var(--muted)]">
+                <Target size={16} aria-hidden />
+                No goal yet
+              </p>
+              <p className="mt-2 text-[var(--muted)]">
+                Create one goal in Settings — name it, set the target, then save toward it.
+              </p>
+            </div>
+            <Link to="/settings" className="btn btn-primary">
+              Create a goal
+            </Link>
+          </div>
+        ) : (
+          <>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="flex items-center gap-2 text-sm font-semibold text-[var(--muted)]">
-              <Smartphone size={16} aria-hidden />
-              iPhone Duo savings
+              <Target size={16} aria-hidden />
+              {name}
             </p>
             <p className="mt-1 text-4xl font-extrabold tracking-tight text-[var(--green)] sm:text-5xl">
               {formatUsd(saved)}
@@ -68,6 +93,9 @@ export function Dashboard() {
             <p className="mt-2 text-sm text-[var(--muted)]">
               Goal {formatUsd(goal)} · {formatUsd(remaining)} remaining · {pct}% complete
             </p>
+            {active.note ? (
+              <p className="mt-1 text-sm text-[var(--muted)]">{active.note}</p>
+            ) : null}
           </div>
           <div className="text-right text-sm text-[var(--muted)]">
             <p className="inline-flex items-center gap-1.5">
@@ -90,7 +118,7 @@ export function Dashboard() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
           <span className="rounded-full bg-[var(--green)]/15 px-3 py-1 text-[var(--green)]">
-            {state.settings.allocation.iphone}% iPhone
+            {state.settings.allocation.iphone}% Goal
           </span>
           <span className="rounded-full bg-[var(--blue)]/15 px-3 py-1 text-[var(--blue)]">
             {state.settings.allocation.spending}% Spending
@@ -98,10 +126,15 @@ export function Dashboard() {
           <span className="rounded-full bg-[var(--orange)]/15 px-3 py-1 text-[var(--orange)]">
             {state.settings.allocation.extra}% Extra
           </span>
+          <span className="rounded-full bg-[var(--pink)]/15 px-3 py-1 text-[var(--pink)]">
+            {state.settings.allocation.charity}% Charity
+          </span>
         </div>
+          </>
+        )}
       </section>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           label="Combined total"
           value={formatUsd(balances.combined)}
@@ -115,6 +148,12 @@ export function Dashboard() {
           icon={<Store size={16} aria-hidden />}
         />
         <StatCard
+          label="NFC Bracelets"
+          value={formatUsd(businessEarningsCents(state.transactions, 'nfc_bracelets'))}
+          accent="orange"
+          icon={<Watch size={16} aria-hidden />}
+        />
+        <StatCard
           label="Allowance received"
           value={formatUsd(allowanceTotalCents(state.transactions))}
           accent="orange"
@@ -123,16 +162,16 @@ export function Dashboard() {
         <StatCard
           label="Spending available"
           value={formatUsd(balances.spending)}
-          hint={`Extra ${formatUsd(balances.extra)}`}
+          hint={`Extra ${formatUsd(balances.extra)} · Charity ${formatUsd(balances.charity)}`}
           icon={<Wallet size={16} aria-hidden />}
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card p-5">
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            <Smartphone size={14} aria-hidden />
-            iPhone Duo Fund
+            <Target size={14} aria-hidden />
+            {active ? `${name} fund` : 'Goal fund'}
           </p>
           <p className="mt-2 text-2xl font-extrabold">{formatUsd(balances.iphone)}</p>
           <div className="progress-track mt-3">
@@ -158,6 +197,16 @@ export function Dashboard() {
             {formatUsd(balances.extra)}
           </p>
           <p className="mt-2 text-sm text-[var(--muted)]">No fixed target</p>
+        </div>
+        <div className="card p-5">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            <Heart size={14} aria-hidden />
+            Charity
+          </p>
+          <p className="mt-2 text-2xl font-extrabold text-[var(--pink)]">
+            {formatUsd(balances.charity)}
+          </p>
+          <p className="mt-2 text-sm text-[var(--muted)]">Give when you are ready</p>
         </div>
       </div>
 

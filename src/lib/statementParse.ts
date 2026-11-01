@@ -42,21 +42,43 @@ function normalizeDate(raw: string): string | null {
   return null
 }
 
+function looksLikeYearNotMoney(raw: string): boolean {
+  const t = raw.trim().replace(/[$,]/g, '')
+  // Bare 1900–2099 (common PDF/OCR years mistaken for dollars)
+  return /^(19|20)\d{2}$/.test(t)
+}
+
 function parseAmountToken(raw: string): number | null {
   let t = raw.trim()
   if (!t) return null
+  if (looksLikeYearNotMoney(t)) return null
   const parenNeg = /^\(.*\)$/.test(t)
   t = t.replace(/[$,]/g, '').replace(/\s/g, '')
   if (!t || t === '-' || t === '+') return null
   const n = Number(t)
   if (!Number.isFinite(n)) return null
+  // Reject 4-digit whole dollars in year range without $ or cents (e.g. "2026")
+  if (Number.isInteger(n) && n >= 1900 && n <= 2099 && !/[.$]/.test(raw) && !raw.includes(',')) {
+    return null
+  }
   return parenNeg ? -Math.abs(n) : n
 }
 
 const DATE_IN_LINE =
   /(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{2,4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{2,4})/i
 
-const AMOUNT_IN_LINE = /([+-]?\$?\s?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\)?|[+-]?\d+\.\d{2})/
+// Money only: $…, ….## cents, or standalone 1–3 digit whole dollars (not sliced out of years like 2026)
+const AMOUNT_IN_LINE =
+  /([+-]?\$\s?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\)?|[+-]?\(?\d{1,3}(?:,\d{3})*\.\d{2}\)?|(?<![0-9])[+-]?\d{1,3}(?![0-9.]))/
+
+function isPlausibleMoneyToken(token: string): boolean {
+  if (looksLikeYearNotMoney(token)) return false
+  if (parseAmountToken(token) == null) return false
+  // Prefer real money shape; allow small whole dollars without $ (e.g. 50)
+  const n = Math.abs(parseAmountToken(token)!)
+  if (/[.$]/.test(token) || token.includes(',')) return true
+  return n > 0 && n < 1900
+}
 
 /** Pull date + amount + leftover description from a freeform PDF/OCR line. */
 function freeformCells(line: string): string[] | null {
@@ -64,32 +86,23 @@ function freeformCells(line: string): string[] | null {
   if (!dateMatch || dateMatch.index == null) return null
   const withoutDate =
     line.slice(0, dateMatch.index) + line.slice(dateMatch.index + dateMatch[0].length)
-  const amountMatch = withoutDate.match(AMOUNT_IN_LINE)
-  if (!amountMatch || amountMatch.index == null) return null
-  const amountToken = amountMatch[0]!.replace(/\s/g, '')
-  // Prefer amounts that look like money (have $ or decimals), skip lone years/ids
-  if (!/[.$]/.test(amountToken) && !amountToken.includes(',')) {
-    // try next amount on the line
-    const rest = withoutDate.slice(amountMatch.index + amountMatch[0].length)
-    const second = rest.match(AMOUNT_IN_LINE)
-    if (second) {
-      const desc = (
-        withoutDate.slice(0, amountMatch.index) +
-        withoutDate.slice(0, second.index!) +
-        rest.slice(second.index! + second[0].length)
-      )
+
+  let searchFrom = 0
+  while (searchFrom < withoutDate.length) {
+    const slice = withoutDate.slice(searchFrom)
+    const amountMatch = slice.match(AMOUNT_IN_LINE)
+    if (!amountMatch || amountMatch.index == null) return null
+    const token = amountMatch[0]!.replace(/\s/g, '')
+    const absIndex = searchFrom + amountMatch.index
+    if (isPlausibleMoneyToken(token)) {
+      const desc = (withoutDate.slice(0, absIndex) + withoutDate.slice(absIndex + amountMatch[0].length))
         .replace(/\s+/g, ' ')
         .trim()
-      return [dateMatch[0]!, second[0]!.replace(/\s/g, ''), desc || 'Statement import']
+      return [dateMatch[0]!, token, desc || 'Statement import']
     }
+    searchFrom = absIndex + amountMatch[0].length
   }
-  const desc = (
-    withoutDate.slice(0, amountMatch.index) +
-    withoutDate.slice(amountMatch.index + amountMatch[0].length)
-  )
-    .replace(/\s+/g, ' ')
-    .trim()
-  return [dateMatch[0]!, amountToken, desc || 'Statement import']
+  return null
 }
 
 function splitLine(line: string): string[] {
@@ -151,6 +164,7 @@ function guessType(
 function guessSource(desc: string): IncomeSource {
   const d = desc.toLowerCase()
   if (d.includes('printx')) return 'printx'
+  if (d.includes('nfc') && d.includes('bracelet')) return 'nfc_bracelets'
   if (d.includes('allowance')) return 'allowance'
   return 'other'
 }

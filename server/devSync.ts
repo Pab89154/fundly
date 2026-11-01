@@ -1,6 +1,7 @@
 import type { Connect } from 'vite'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ServerResponse } from 'node:http'
+import { handleFundlyApi } from './fundlyApi.ts'
 
 type Env = Record<string, string>
 
@@ -31,6 +32,14 @@ export function createSyncMiddleware(env: Env): Connect.NextHandleFunction {
   return async (req, res, next) => {
     const url = req.url ?? ''
     if (!url.startsWith('/api/')) return next()
+
+    try {
+      if (await handleFundlyApi(req, res, env)) return
+    } catch (err) {
+      return json(res, 500, {
+        error: err instanceof Error ? err.message : 'Fundly API error',
+      })
+    }
 
     if (url.startsWith('/api/printx/sync') && req.method === 'POST') {
       const apiKey = env.PRINTX_MONEY_TRACKER_API_KEY?.trim()

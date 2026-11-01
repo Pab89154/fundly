@@ -1,10 +1,12 @@
 import { Trophy, Sparkles, X } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import { formatUsd, milestoneLabel } from '../lib/money'
+import { goalName, goalTargetCents } from '../types'
 
 export function CelebrationModal() {
-  const { celebration, dismissCelebration } = useMoney()
+  const { celebration, dismissCelebration, state } = useMoney()
   if (celebration == null) return null
+  const name = goalName(state.settings)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -25,9 +27,14 @@ export function CelebrationModal() {
           <p className="text-sm font-semibold uppercase tracking-widest">Milestone unlocked</p>
           <Sparkles size={16} />
         </div>
-        <h2 className="mt-3 text-3xl font-extrabold">{milestoneLabel(celebration)}</h2>
+        <h2 className="mt-3 text-3xl font-extrabold">
+          {milestoneLabel(celebration, {
+            targetCents: goalTargetCents(state.settings),
+            goalName: name,
+          })}
+        </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Your iPhone Duo fund hit {formatUsd(celebration)}. Keep going!
+          Your {name} fund hit {formatUsd(celebration)}. Keep going!
         </p>
         <button type="button" className="btn btn-primary mt-6 w-full" onClick={dismissCelebration}>
           Continue

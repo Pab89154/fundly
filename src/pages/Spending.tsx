@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ShoppingBag } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import { formatUsd } from '../lib/money'
+import { NativeSelect } from '../components/NativeSelect'
 import type { SpendCategory } from '../types'
 
 const categories: SpendCategory[] = ['food', 'games', 'apps', 'school', 'transport', 'other']
@@ -42,7 +43,7 @@ export function Spending() {
           Spending
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Buys only use your Spending Money balance - never iPhone or Extra savings.
+          Buys only use your Spending Money balance — never Goal or Extra savings.
         </p>
       </header>
 
@@ -87,18 +88,12 @@ export function Spending() {
           <label className="label" htmlFor="cat">
             Category
           </label>
-          <select
-            id="cat"
-            className="field"
+          <NativeSelect
+            aria-label="Category"
             value={category}
-            onChange={(e) => setCategory(e.target.value as SpendCategory)}
-          >
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setCategory(v as SpendCategory)}
+            options={categories.map((c) => ({ value: c, label: c }))}
+          />
         </div>
         <div>
           <label className="label" htmlFor="date">

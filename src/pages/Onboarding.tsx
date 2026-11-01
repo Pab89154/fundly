@@ -6,6 +6,7 @@ import { useMoney } from '../store/MoneyContext'
 import { allocateCents, formatUsd, fromCents, toCents } from '../lib/money'
 import { parseTransactionStatement } from '../lib/statementParse'
 import { readStatementFile, STATEMENT_FILE_ACCEPT } from '../lib/readStatementFile'
+import { NativeSelect } from '../components/NativeSelect'
 import type { IncomeSource } from '../types'
 
 type PastRow = {
@@ -111,8 +112,8 @@ export function Onboarding() {
           <p className="text-sm font-semibold text-[var(--green)]">Welcome to Fundly</p>
           <h1 className="mt-1 text-4xl font-extrabold tracking-tight">Fundly</h1>
           <p className="mt-2 text-[var(--muted)]">
-            Enter how much you have in Apple Cash right now. Fundly splits it into iPhone, Spending,
-            and Extra automatically.
+            Enter how much you have in Apple Cash right now. Fundly splits it into Goal, Spending,
+            Extra, and Charity automatically.
           </p>
           <p className="mt-2 text-xs text-[var(--muted)]">Step {step} of 2</p>
         </header>
@@ -141,12 +142,14 @@ export function Onboarding() {
                 <p className="font-semibold">Auto-split preview</p>
                 <p className="mt-1 text-[var(--muted)]">
                   Based on {state.settings.allocation.iphone}/
-                  {state.settings.allocation.spending}/{state.settings.allocation.extra}
+                  {state.settings.allocation.spending}/{state.settings.allocation.extra}/
+                  {state.settings.allocation.charity}
                 </p>
                 <ul className="mt-2 space-y-1 text-[var(--muted)]">
-                  <li>iPhone Duo: {formatUsd(preview.iphone)}</li>
+                  <li>Goal: {formatUsd(preview.iphone)}</li>
                   <li>Spending: {formatUsd(preview.spending)}</li>
                   <li>Extra: {formatUsd(preview.extra)}</li>
+                  <li>Charity: {formatUsd(preview.charity)}</li>
                 </ul>
               </div>
             ) : null}
@@ -216,17 +219,18 @@ export function Onboarding() {
 
             {rows.map((r, i) => (
               <div key={i} className="space-y-2 rounded-xl border border-[var(--border)] p-3">
-                <select
-                  className="field"
+                <NativeSelect
+                  aria-label="Type"
                   value={r.type}
-                  onChange={(e) => {
-                    const v = e.target.value as 'income' | 'spending'
-                    setRows((all) => all.map((x, idx) => (idx === i ? { ...x, type: v } : x)))
+                  onChange={(v) => {
+                    const next = v as 'income' | 'spending'
+                    setRows((all) => all.map((x, idx) => (idx === i ? { ...x, type: next } : x)))
                   }}
-                >
-                  <option value="income">Income</option>
-                  <option value="spending">Spending</option>
-                </select>
+                  options={[
+                    { value: 'income', label: 'Income' },
+                    { value: 'spending', label: 'Spending' },
+                  ]}
+                />
                 <input
                   className="field"
                   type="number"

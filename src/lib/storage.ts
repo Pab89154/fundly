@@ -1,4 +1,10 @@
-import { createEmptyState, STORAGE_KEY, type AppState } from '../types'
+import { normalizeAllocationPct } from './money'
+import {
+  createEmptyState,
+  normalizeActiveGoal,
+  STORAGE_KEY,
+  type AppState,
+} from '../types'
 
 export function loadState(): AppState {
   try {
@@ -8,17 +14,22 @@ export function loadState(): AppState {
     if (!parsed || parsed.version !== 1 || !parsed.settings || !Array.isArray(parsed.transactions)) {
       return createEmptyState()
     }
+    const activeGoal = normalizeActiveGoal(parsed.settings)
     return {
       version: 1,
       settings: {
         ...createEmptyState().settings,
         ...parsed.settings,
-        allocation: {
-          ...createEmptyState().settings.allocation,
-          ...parsed.settings.allocation,
-        },
+        allocation: normalizeAllocationPct(parsed.settings.allocation),
+        activeGoal,
+        goalCents: activeGoal?.targetCents ?? 0,
         importedEventIds: parsed.settings.importedEventIds ?? [],
         celebratedMilestones: parsed.settings.celebratedMilestones ?? [],
+        printxOpenOwedCents: Number(parsed.settings.printxOpenOwedCents) || 0,
+        printxOpenResolvedCents: Number(parsed.settings.printxOpenResolvedCents) || 0,
+        printxLastResolvedCents: Number(parsed.settings.printxLastResolvedCents) || 0,
+        printxLastResolvedAt: parsed.settings.printxLastResolvedAt ?? null,
+        printxResolveUndo: parsed.settings.printxResolveUndo ?? null,
       },
       transactions: parsed.transactions,
     }

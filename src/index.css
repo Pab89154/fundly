@@ -11,6 +11,7 @@
   --green: #30d158;
   --blue: #64d2ff;
   --orange: #ff9f0a;
+  --pink: #ff6b8a;
   --danger: #ff453a;
   --ring: rgba(48, 209, 88, 0.35);
   color-scheme: dark;
@@ -26,6 +27,7 @@ html.light {
   --green: #248a3d;
   --blue: #007aff;
   --orange: #c93400;
+  --pink: #d7005f;
   --danger: #d70015;
   --ring: rgba(36, 138, 61, 0.25);
   color-scheme: light;

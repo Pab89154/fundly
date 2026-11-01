@@ -9,6 +9,7 @@ import {
   type ParsedStatementRow,
 } from '../lib/statementParse'
 import { readStatementFile, STATEMENT_FILE_ACCEPT } from '../lib/readStatementFile'
+import { NativeSelect } from '../components/NativeSelect'
 import type { IncomeSource } from '../types'
 
 export function ImportStatement() {
@@ -108,7 +109,8 @@ export function ImportStatement() {
         <p className="mt-2 text-[var(--muted)]">
           Upload a statement file and Fundly reads the transactions from it. Income splits{' '}
           {state.settings.allocation.iphone}/{state.settings.allocation.spending}/
-          {state.settings.allocation.extra}. Spending uses Spending Money only.
+          {state.settings.allocation.extra}/{state.settings.allocation.charity}. Spending uses
+          Spending Money only.
         </p>
       </header>
 
@@ -210,28 +212,29 @@ export function ImportStatement() {
                   value={r.amountUsd}
                   onChange={(e) => updateRow(r.id, { amountUsd: Number(e.target.value) || 0 })}
                 />
-                <select
-                  className="field sm:max-w-[8rem]"
+                <NativeSelect
+                  className="sm:max-w-[8rem]"
+                  aria-label="Type"
                   value={r.type}
-                  onChange={(e) =>
-                    updateRow(r.id, { type: e.target.value as 'income' | 'spending' })
-                  }
-                >
-                  <option value="income">Income</option>
-                  <option value="spending">Spending</option>
-                </select>
+                  onChange={(v) => updateRow(r.id, { type: v as 'income' | 'spending' })}
+                  options={[
+                    { value: 'income', label: 'Income' },
+                    { value: 'spending', label: 'Spending' },
+                  ]}
+                />
                 {r.type === 'income' ? (
-                  <select
-                    className="field sm:max-w-[8rem]"
+                  <NativeSelect
+                    className="sm:max-w-[8rem]"
+                    aria-label="Source"
                     value={r.source}
-                    onChange={(e) =>
-                      updateRow(r.id, { source: e.target.value as IncomeSource })
-                    }
-                  >
-                    <option value="printx">PrintX</option>
-                    <option value="allowance">Allowance</option>
-                    <option value="other">Other</option>
-                  </select>
+                    onChange={(v) => updateRow(r.id, { source: v as IncomeSource })}
+                    options={[
+                      { value: 'printx', label: 'PrintX' },
+                      { value: 'nfc_bracelets', label: 'NFC Bracelets' },
+                      { value: 'allowance', label: 'Allowance' },
+                      { value: 'other', label: 'Other' },
+                    ]}
+                  />
                 ) : null}
                 <input
                   className="field flex-1"

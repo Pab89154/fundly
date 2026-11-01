@@ -1,18 +1,35 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PlusCircle } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import { allocateCents, formatUsd, toCents } from '../lib/money'
+import { NativeSelect } from '../components/NativeSelect'
 import type { IncomeSource, PrintxPaySource } from '../types'
+
+const INCOME_SOURCES: Array<{ value: IncomeSource; label: string }> = [
+  { value: 'printx', label: 'PrintX' },
+  { value: 'nfc_bracelets', label: 'NFC Bracelets' },
+  { value: 'allowance', label: 'Allowance' },
+  { value: 'other', label: 'Other' },
+]
+
+function parseSourceParam(raw: string | null): IncomeSource {
+  if (raw === 'nfc_bracelets' || raw === 'printx' || raw === 'allowance' || raw === 'other') return raw
+  return 'printx'
+}
 
 export function AddIncome() {
   const { addIncome, state } = useMoney()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const initialSource = useMemo(() => parseSourceParam(params.get('source')), [params])
   const [amount, setAmount] = useState('')
-  const [source, setSource] = useState<IncomeSource>('printx')
+  const [source, setSource] = useState<IncomeSource>(initialSource)
   const [printxSource, setPrintxSource] = useState<PrintxPaySource>('cash')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
-  const [description, setDescription] = useState('')
+  const [description, setDescription] = useState(
+    initialSource === 'nfc_bracelets' ? 'NFC Bracelet sale' : '',
+  )
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
 
@@ -34,7 +51,7 @@ export function AddIncome() {
       setError(res.error)
       return
     }
-    setOk('Income saved and split across all three balances.')
+    setOk('Income saved and split across all four balances.')
     setAmount('')
     setDescription('')
     setTimeout(() => navigate('/'), 600)
@@ -49,8 +66,8 @@ export function AddIncome() {
         </h2>
         <p className="mt-2 text-[var(--muted)]">
           Automatically splits {state.settings.allocation.iphone}/
-          {state.settings.allocation.spending}/{state.settings.allocation.extra} across iPhone,
-          Spending, and Extra.
+          {state.settings.allocation.spending}/{state.settings.allocation.extra}/
+          {state.settings.allocation.charity} across Goal, Spending, Extra, and Charity.
         </p>
       </header>
 
@@ -75,32 +92,39 @@ export function AddIncome() {
           <label className="label" htmlFor="source">
             Source
           </label>
-          <select
-            id="source"
-            className="field"
+          <NativeSelect
+            aria-label="Source"
             value={source}
-            onChange={(e) => setSource(e.target.value as IncomeSource)}
-          >
-            <option value="printx">PrintX</option>
-            <option value="allowance">Allowance</option>
-            <option value="other">Other</option>
-          </select>
+            onChange={(v) => {
+              const next = v as IncomeSource
+              setSource(next)
+              if (next === 'nfc_bracelets' && !description.trim()) {
+                setDescription('NFC Bracelet sale')
+              }
+            }}
+            options={INCOME_SOURCES}
+          />
         </div>
         {source === 'printx' ? (
           <div>
             <label className="label" htmlFor="px">
               PrintX payment type
             </label>
-            <select
-              id="px"
-              className="field"
+            <NativeSelect
+              aria-label="PrintX payment type"
               value={printxSource}
-              onChange={(e) => setPrintxSource(e.target.value as PrintxPaySource)}
-            >
-              <option value="cash">Cash</option>
-              <option value="stripe">Stripe</option>
-            </select>
+              onChange={(v) => setPrintxSource(v as PrintxPaySource)}
+              options={[
+                { value: 'cash', label: 'Cash' },
+                { value: 'stripe', label: 'Stripe' },
+              ]}
+            />
           </div>
+        ) : null}
+        {source === 'nfc_bracelets' ? (
+          <p className="text-sm text-[var(--muted)]">
+            Manual only — enter each NFC Bracelet sale yourself (no API sync).
+          </p>
         ) : null}
         <div>
           <label className="label" htmlFor="date">
@@ -124,7 +148,13 @@ export function AddIncome() {
             className="field"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Weekly PrintX sales"
+            placeholder={
+              source === 'nfc_bracelets'
+                ? 'NFC Bracelet sale'
+                : source === 'printx'
+                  ? 'Weekly PrintX sales'
+                  : 'What was this for?'
+            }
           />
         </div>
 
@@ -132,9 +162,10 @@ export function AddIncome() {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-4 text-sm">
             <p className="font-semibold">Split preview</p>
             <ul className="mt-2 space-y-1 text-[var(--muted)]">
-              <li>iPhone: {formatUsd(preview.iphone)}</li>
+              <li>Goal: {formatUsd(preview.iphone)}</li>
               <li>Spending: {formatUsd(preview.spending)}</li>
               <li>Extra: {formatUsd(preview.extra)}</li>
+              <li>Charity: {formatUsd(preview.charity)}</li>
             </ul>
           </div>
         ) : null}

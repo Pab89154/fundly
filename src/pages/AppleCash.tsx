@@ -137,7 +137,7 @@ export function AppleCash() {
         <h3 className="font-bold">Allocated in the tracker</h3>
         <ul className="mt-3 space-y-2 text-sm">
           <li className="flex justify-between">
-            <span>iPhone Duo</span>
+            <span>Goal fund</span>
             <span className="font-semibold text-[var(--green)]">{formatUsd(balances.iphone)}</span>
           </li>
           <li className="flex justify-between">
@@ -147,6 +147,10 @@ export function AppleCash() {
           <li className="flex justify-between">
             <span>Extra</span>
             <span className="font-semibold text-[var(--orange)]">{formatUsd(balances.extra)}</span>
+          </li>
+          <li className="flex justify-between">
+            <span>Charity</span>
+            <span className="font-semibold text-[var(--pink)]">{formatUsd(balances.charity)}</span>
           </li>
         </ul>
       </div>

@@ -10,16 +10,23 @@ import {
 import {
   allocateCents,
   crossedMilestones,
+  formatUsd,
   fromCents,
   isValidAllocationPct,
+  normalizeAllocationPct,
+  sumAllocation,
   toCents,
   type AccountId,
+  type AllocationCents,
   type AllocationPct,
 } from '../lib/money'
 import { computeBalances } from '../lib/balances'
 import { clearState, loadState, newId, saveState } from '../lib/storage'
+import { fetchCloudState, logoutFundly, saveCloudState } from '../lib/fundlyApi'
 import {
   createEmptyState,
+  goalTargetCents,
+  normalizeActiveGoal,
   type AppState,
   type IncomeSource,
   type PrintxFeedEvent,
@@ -54,7 +61,7 @@ type TransferInput = {
 }
 
 type OnboardingInput = {
-  /** Current Apple Cash / wallet total — split automatically 70/20/10 (or settings %). */
+  /** Current Apple Cash / wallet total — split automatically 60/20/10/10 (or settings %). */
   appleCashUsd: number
   pastTransactions?: Array<{
     type: 'income' | 'spending' | 'transfer'
@@ -90,6 +97,27 @@ type MoneyContextValue = {
     skipped: number
     newMilestoneCents: number[]
   }
+  /** Count a synced PrintX payout in your pots (after the money is actually yours). */
+  settlePrintxTransaction: (id: string) => { ok: true } | { ok: false; error: string }
+  settleAllPrintxPending: () => { ok: true; settled: number } | { ok: false; error: string }
+  /** Redistribute current pot totals to match Settings split (e.g. fill Charity 10%). */
+  rebalanceToAllocation: () =>
+    | { ok: true; movedCents: number }
+    | { ok: false; error: string }
+  /** Update open "Owed to me" from PrintX sync. */
+  setPrintxOpenOwed: (openOwedUsd: number) => void
+  /**
+   * Mark resolved: put open PrintX money (and any waiting leftovers) into pots.
+   * Open goes to $0 until new earnings appear.
+   */
+  resolvePrintxNow: () =>
+    | { ok: true; resolvedCents: number; openCents: number; waitingCents: number }
+    | { ok: false; error: string }
+  /** Undo the last Mark resolved (puts open back). */
+  undoResolvePrintx: () => { ok: true } | { ok: false; error: string }
+  canUndoResolvePrintx: boolean
+  /** Open amount still to resolve (PrintX owed minus already resolved here). */
+  printxOpenRemainingCents: number
   /** Import past funds from a parsed transaction statement. */
   importStatementRows: (
     rows: Array<{
@@ -104,17 +132,89 @@ type MoneyContextValue = {
   resetAllData: () => void
   celebration: number | null
   dismissCelebration: () => void
+  cloud: {
+    ready: boolean
+    empty: boolean
+    lastError: string | null
+    uploadLocalToCloud: () => Promise<{ ok: true } | { ok: false; error: string }>
+    lockNow: () => Promise<void>
+  }
 }
 
 const MoneyContext = createContext<MoneyContextValue | null>(null)
 
-export function MoneyProvider({ children }: { children: ReactNode }) {
+export function MoneyProvider({
+  children,
+  cloudEnabled = false,
+}: {
+  children: ReactNode
+  cloudEnabled?: boolean
+}) {
   const [state, setState] = useState<AppState>(() => loadState())
   const [celebration, setCelebration] = useState<number | null>(null)
+  const [cloudReady, setCloudReady] = useState(!cloudEnabled)
+  const [cloudEmpty, setCloudEmpty] = useState(false)
+  const [cloudError, setCloudError] = useState<string | null>(null)
+  const [cloudHydrated, setCloudHydrated] = useState(!cloudEnabled)
 
   useEffect(() => {
     saveState(state)
   }, [state])
+
+  useEffect(() => {
+    if (!cloudEnabled || !cloudHydrated) return
+    const handle = window.setTimeout(() => {
+      void saveCloudState(state).then((res) => {
+        if (!res.ok) setCloudError(res.error)
+        else {
+          setCloudError(null)
+          setCloudEmpty(false)
+        }
+      })
+    }, 400)
+    return () => window.clearTimeout(handle)
+  }, [state, cloudEnabled, cloudHydrated])
+
+  useEffect(() => {
+    if (!cloudEnabled) return
+    let cancelled = false
+    void (async () => {
+      const remote = await fetchCloudState()
+      if (cancelled) return
+      if (!remote.ok) {
+        setCloudError(remote.error)
+        setCloudReady(true)
+        setCloudHydrated(true)
+        return
+      }
+      setCloudEmpty(remote.empty)
+      if (!remote.empty) {
+        const activeGoal = normalizeActiveGoal(remote.state.settings)
+        const next: AppState = {
+          ...remote.state,
+          settings: {
+            ...createEmptyState().settings,
+            ...remote.state.settings,
+            allocation: normalizeAllocationPct(remote.state.settings.allocation),
+            activeGoal,
+            goalCents: activeGoal?.targetCents ?? 0,
+            printxOpenOwedCents: Number(remote.state.settings.printxOpenOwedCents) || 0,
+            printxOpenResolvedCents: Number(remote.state.settings.printxOpenResolvedCents) || 0,
+            printxLastResolvedCents: Number(remote.state.settings.printxLastResolvedCents) || 0,
+            printxLastResolvedAt: remote.state.settings.printxLastResolvedAt ?? null,
+            printxResolveUndo: remote.state.settings.printxResolveUndo ?? null,
+          },
+        }
+        setState(next)
+        saveState(next)
+      }
+      setCloudReady(true)
+      setCloudHydrated(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [cloudEnabled])
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme
@@ -122,13 +222,24 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
   }, [state.settings.theme])
 
   const balances = useMemo(() => computeBalances(state.transactions), [state.transactions])
+  const printxOpenRemainingCents = Math.max(
+    0,
+    (Number(state.settings.printxOpenOwedCents) || 0) -
+      (Number(state.settings.printxOpenResolvedCents) || 0),
+  )
+  const canUndoResolvePrintx =
+    Boolean(state.settings.printxResolveUndo) ||
+    state.transactions.some(
+      (t) =>
+        t.tags?.includes('resolve') && String(t.externalId || '').startsWith('printx-resolve:'),
+    )
 
   const pushTx = useCallback((tx: Transaction, celebrateFrom?: number) => {
     setState((prev) => {
       const nextTxs = [...prev.transactions, tx]
       const nextBalances = computeBalances(nextTxs)
       const prevIphone = celebrateFrom ?? computeBalances(prev.transactions).iphone
-      const crossed = crossedMilestones(prevIphone, nextBalances.iphone).filter(
+      const crossed = crossedMilestones(prevIphone, nextBalances.iphone, goalTargetCents(prev.settings)).filter(
         (m) => !prev.settings.celebratedMilestones.includes(m),
       )
       if (crossed.length) {
@@ -274,10 +385,22 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
     if (patch.allocation && !isValidAllocationPct(patch.allocation)) {
       return { ok: false as const, error: 'Allocation percentages must add up to 100%.' }
     }
-    setState((prev) => ({
-      ...prev,
-      settings: { ...prev.settings, ...patch },
-    }))
+    setState((prev) => {
+      const next = { ...prev.settings, ...patch }
+      if ('activeGoal' in patch) {
+        const g = normalizeActiveGoal({ ...next, activeGoal: patch.activeGoal ?? null })
+        next.activeGoal = g
+        next.goalCents = g?.targetCents ?? 0
+      } else if (typeof patch.goalCents === 'number' && next.activeGoal) {
+        next.activeGoal = {
+          ...next.activeGoal,
+          targetCents: Math.max(0, Math.trunc(patch.goalCents)),
+          updatedAt: new Date().toISOString(),
+        }
+        next.goalCents = next.activeGoal.targetCents
+      }
+      return { ...prev, settings: next }
+    })
     return { ok: true as const }
   }, [])
 
@@ -361,7 +484,7 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
           onboardingComplete: true,
           appleCashConfirmedCents: apple,
           appleCashConfirmedAt: new Date().toISOString(),
-          celebratedMilestones: crossedMilestones(0, iphoneBal),
+          celebratedMilestones: crossedMilestones(0, iphoneBal, goalTargetCents(prev.settings)),
         },
       }
     })
@@ -395,7 +518,7 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
             amountCents: Math.abs(diff),
             date: new Date().toISOString().slice(0, 10),
             description: opts.note?.trim() || 'Apple Cash reconciliation adjustment',
-            allocation: { iphone: 0, spending: diff, extra: 0 },
+            allocation: { iphone: 0, spending: diff, extra: 0, charity: 0 },
             tags: ['apple_cash', 'reconcile'],
             createdAt: new Date().toISOString(),
           })
@@ -417,75 +540,290 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
 
   const importPrintxEvents = useCallback(
     (events: PrintxFeedEvent[]) => {
-      let imported = 0
+      // Money enters pots via Mark resolved on the Open amount — not leftover "waiting" imports.
       let skipped = 0
-      const newMilestones: number[] = []
-
       setState((prev) => {
-        const known = new Set(prev.settings.importedEventIds)
-        const txs = [...prev.transactions]
         const ids = [...prev.settings.importedEventIds]
+        const known = new Set(ids)
         let cursor = prev.settings.syncCursor
-        let iphoneBefore = computeBalances(prev.transactions).iphone
-
         for (const ev of events) {
-          if (!ev.eventId || known.has(ev.eventId)) {
-            skipped += 1
-            continue
+          skipped += 1
+          if (!ev.eventId) continue
+          if (!known.has(ev.eventId)) {
+            known.add(ev.eventId)
+            ids.push(ev.eventId)
           }
-          const cents = toCents(ev.amountNetUsd)
-          if (cents === 0) {
-            skipped += 1
-            continue
-          }
-          const isNegative = cents < 0 || ev.kind === 'refund' || ev.kind === 'reversal'
-          const abs = Math.abs(cents)
-          const allocation = allocateCents(isNegative ? -abs : abs, prev.settings.allocation)
-          txs.push({
-            id: newId(),
-            type: isNegative ? 'refund' : 'import',
-            amountCents: abs,
-            date: (ev.occurredAt || new Date().toISOString()).slice(0, 10),
-            description: ev.description || `PrintX ${ev.source} ${ev.kind}`,
-            source: 'printx',
-            printxSource: ev.source,
-            allocation,
-            externalId: ev.eventId,
-            tags: ['printx', ev.source, ev.kind],
-            createdAt: new Date().toISOString(),
-          })
-          known.add(ev.eventId)
-          ids.push(ev.eventId)
-          imported += 1
           if (ev.occurredAt && (!cursor || ev.occurredAt > cursor)) cursor = ev.occurredAt
         }
-
-        const iphoneAfter = computeBalances(txs).iphone
-        const crossed = crossedMilestones(iphoneBefore, iphoneAfter).filter(
-          (m) => !prev.settings.celebratedMilestones.includes(m),
-        )
-        newMilestones.push(...crossed)
-        if (crossed.length) {
-          queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
-        }
-
         return {
           ...prev,
-          transactions: txs,
           settings: {
             ...prev.settings,
             importedEventIds: ids,
             syncCursor: cursor,
             lastSyncedAt: new Date().toISOString(),
-            celebratedMilestones: [...prev.settings.celebratedMilestones, ...crossed],
           },
         }
       })
-
-      return { imported, skipped, newMilestoneCents: newMilestones }
+      return { imported: 0, skipped, newMilestoneCents: [] as number[] }
     },
     [],
   )
+
+  const setPrintxOpenOwed = useCallback((openOwedUsd: number) => {
+    const nextOpen = Math.max(0, toCents(openOwedUsd))
+    setState((prev) => {
+      const prevOpen = Number(prev.settings.printxOpenOwedCents) || 0
+      let resolved = Number(prev.settings.printxOpenResolvedCents) || 0
+      // If PrintX open dropped (settled there), shrink our resolved credit with it.
+      if (nextOpen < prevOpen) {
+        resolved = Math.max(0, resolved - (prevOpen - nextOpen))
+      }
+      // Never keep resolved above current open.
+      resolved = Math.min(resolved, nextOpen)
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          printxOpenOwedCents: nextOpen,
+          printxOpenResolvedCents: resolved,
+          lastSyncedAt: new Date().toISOString(),
+        },
+      }
+    })
+  }, [])
+
+  const resolvePrintxNow = useCallback(() => {
+    let resolvedCents = 0
+    let openCents = 0
+    let waitingCents = 0
+    let error: string | null = null
+
+    setState((prev) => {
+      const openOwed = Number(prev.settings.printxOpenOwedCents) || 0
+      const already = Number(prev.settings.printxOpenResolvedCents) || 0
+      openCents = Math.max(0, openOwed - already)
+
+      const pending = prev.transactions.filter((tx) => tx.settledAt === null)
+      waitingCents = pending.reduce((s, t) => s + Math.abs(t.amountCents), 0)
+
+      if (openCents <= 0 && pending.length === 0) {
+        error = 'Nothing to resolve — open is already $0.'
+        return prev
+      }
+
+      const now = new Date().toISOString()
+      const resolveExternalId = openCents > 0 ? `printx-resolve:${now}` : null
+      const reSettledTxIds = pending.map((t) => t.id)
+      const iphoneBefore = computeBalances(prev.transactions).iphone
+      let txs = prev.transactions.map((tx) => {
+        if (tx.settledAt !== null) return tx
+        return {
+          ...tx,
+          settledAt: now,
+          tags: [...(tx.tags || []).filter((t) => t !== 'unsettled'), 'settled'],
+          updatedAt: now,
+        }
+      })
+
+      if (openCents > 0 && resolveExternalId) {
+        const allocation = allocateCents(openCents, prev.settings.allocation)
+        txs = [
+          ...txs,
+          {
+            id: newId(),
+            type: 'income',
+            amountCents: openCents,
+            date: now.slice(0, 10),
+            description: `PrintX resolved · ${formatUsd(openCents)}`,
+            source: 'printx',
+            printxSource: 'cash',
+            allocation,
+            externalId: resolveExternalId,
+            settledAt: now,
+            tags: ['printx', 'resolve'],
+            createdAt: now,
+          },
+        ]
+      }
+
+      resolvedCents = openCents + waitingCents
+      const iphoneAfter = computeBalances(txs).iphone
+      const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(prev.settings)).filter(
+        (m) => !prev.settings.celebratedMilestones.includes(m),
+      )
+      if (crossed.length) {
+        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
+      }
+
+      return {
+        ...prev,
+        transactions: txs,
+        settings: {
+          ...prev.settings,
+          printxOpenResolvedCents: openOwed,
+          printxLastResolvedCents: openCents > 0 ? openCents : waitingCents,
+          printxLastResolvedAt: now,
+          printxResolveUndo: {
+            at: now,
+            prevOpenResolvedCents: already,
+            prevLastResolvedCents: Number(prev.settings.printxLastResolvedCents) || 0,
+            prevLastResolvedAt: prev.settings.printxLastResolvedAt ?? null,
+            resolveExternalId,
+            reSettledTxIds,
+          },
+          celebratedMilestones: [...prev.settings.celebratedMilestones, ...crossed],
+        },
+      }
+    })
+
+    if (error) return { ok: false as const, error }
+    return { ok: true as const, resolvedCents, openCents, waitingCents }
+  }, [])
+
+  const undoResolvePrintx = useCallback(() => {
+    let error: string | null = null
+    setState((prev) => {
+      const undo = prev.settings.printxResolveUndo
+      if (undo) {
+        const reSet = new Set(undo.reSettledTxIds)
+        const txs = prev.transactions
+          .filter((tx) => tx.externalId !== undo.resolveExternalId)
+          .map((tx) => {
+            if (!reSet.has(tx.id)) return tx
+            if (tx.settledAt !== undo.at) return tx
+            return {
+              ...tx,
+              settledAt: null,
+              tags: [...(tx.tags || []).filter((t) => t !== 'settled'), 'unsettled'],
+              updatedAt: new Date().toISOString(),
+            }
+          })
+        return {
+          ...prev,
+          transactions: txs,
+          settings: {
+            ...prev.settings,
+            printxOpenResolvedCents: undo.prevOpenResolvedCents,
+            printxLastResolvedCents: undo.prevLastResolvedCents,
+            printxLastResolvedAt: undo.prevLastResolvedAt,
+            printxResolveUndo: null,
+          },
+        }
+      }
+
+      // Fallback if resolve happened before undo snapshots existed.
+      const resolveTx = [...prev.transactions]
+        .filter(
+          (t) =>
+            t.tags?.includes('resolve') &&
+            String(t.externalId || '').startsWith('printx-resolve:'),
+        )
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+      if (!resolveTx) {
+        error = 'Nothing to undo.'
+        return prev
+      }
+      const openOwed = Number(prev.settings.printxOpenOwedCents) || 0
+      const resolved = Number(prev.settings.printxOpenResolvedCents) || 0
+      return {
+        ...prev,
+        transactions: prev.transactions.filter((t) => t.id !== resolveTx.id),
+        settings: {
+          ...prev.settings,
+          printxOpenResolvedCents: Math.max(0, resolved - resolveTx.amountCents),
+          printxLastResolvedCents: 0,
+          printxLastResolvedAt: null,
+          printxResolveUndo: null,
+          // keep openOwed unchanged so Open shows again
+          printxOpenOwedCents: openOwed,
+        },
+      }
+    })
+    if (error) return { ok: false as const, error }
+    return { ok: true as const }
+  }, [])
+
+  const settlePrintxTransaction = useCallback((id: string) => {
+    let error: string | null = null
+    setState((prev) => {
+      const idx = prev.transactions.findIndex((t) => t.id === id)
+      if (idx < 0) {
+        error = 'Transaction not found.'
+        return prev
+      }
+      const tx = prev.transactions[idx]!
+      if (tx.settledAt !== null) {
+        error = 'Already settled.'
+        return prev
+      }
+      const iphoneBefore = computeBalances(prev.transactions).iphone
+      const nextTx = {
+        ...tx,
+        settledAt: new Date().toISOString(),
+        tags: [...(tx.tags || []).filter((t) => t !== 'unsettled'), 'settled'],
+        updatedAt: new Date().toISOString(),
+      }
+      const copy = [...prev.transactions]
+      copy[idx] = nextTx
+      const iphoneAfter = computeBalances(copy).iphone
+      const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(prev.settings)).filter(
+        (m) => !prev.settings.celebratedMilestones.includes(m),
+      )
+      if (crossed.length) {
+        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
+      }
+      return {
+        ...prev,
+        transactions: copy,
+        settings: {
+          ...prev.settings,
+          celebratedMilestones: [...prev.settings.celebratedMilestones, ...crossed],
+        },
+      }
+    })
+    if (error) return { ok: false as const, error }
+    return { ok: true as const }
+  }, [])
+
+  const settleAllPrintxPending = useCallback(() => {
+    let settled = 0
+    setState((prev) => {
+      const pending = prev.transactions.filter((tx) => tx.settledAt === null)
+      settled = pending.length
+      if (!pending.length) return prev
+      const iphoneBefore = computeBalances(prev.transactions).iphone
+      const now = new Date().toISOString()
+      const pendingIds = new Set(pending.map((t) => t.id))
+      const copy = prev.transactions.map((tx) =>
+        pendingIds.has(tx.id)
+          ? {
+              ...tx,
+              settledAt: now,
+              tags: [...(tx.tags || []).filter((t) => t !== 'unsettled'), 'settled'],
+              updatedAt: now,
+            }
+          : tx,
+      )
+      const iphoneAfter = computeBalances(copy).iphone
+      const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(prev.settings)).filter(
+        (m) => !prev.settings.celebratedMilestones.includes(m),
+      )
+      if (crossed.length) {
+        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
+      }
+      return {
+        ...prev,
+        transactions: copy,
+        settings: {
+          ...prev.settings,
+          celebratedMilestones: [...prev.settings.celebratedMilestones, ...crossed],
+        },
+      }
+    })
+    if (!settled) return { ok: false as const, error: 'Nothing waiting to settle.' }
+    return { ok: true as const, settled }
+  }, [])
 
   const importStatementRows = useCallback(
     (
@@ -530,7 +868,9 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
           running.iphone += allocation.iphone
           running.spending += allocation.spending
           running.extra += allocation.extra
-          running.combined = running.iphone + running.spending + running.extra
+          running.charity += allocation.charity
+          running.combined =
+            running.iphone + running.spending + running.extra + running.charity
           imported += 1
         } else if (cents > running.spending) {
           skipped += 1
@@ -546,7 +886,8 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
             createdAt: new Date().toISOString(),
           })
           running.spending -= cents
-          running.combined = running.iphone + running.spending + running.extra
+          running.combined =
+            running.iphone + running.spending + running.extra + running.charity
           imported += 1
         }
       }
@@ -561,7 +902,7 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const crossed = crossedMilestones(iphoneBefore, running.iphone).filter(
+      const crossed = crossedMilestones(iphoneBefore, running.iphone, goalTargetCents(snapshot.settings)).filter(
         (m) => !snapshot.settings.celebratedMilestones.includes(m),
       )
       if (crossed.length) {
@@ -582,15 +923,109 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
     [state],
   )
 
+  const rebalanceToAllocation = useCallback(() => {
+    let movedCents = 0
+    let error: string | null = null
+    setState((prev) => {
+      const bal = computeBalances(prev.transactions)
+      if (bal.combined <= 0) {
+        error = 'Nothing to rebalance yet.'
+        return prev
+      }
+      if (!isValidAllocationPct(prev.settings.allocation)) {
+        error = 'Fix allocation percentages in Settings first (must add to 100%).'
+        return prev
+      }
+      const target = allocateCents(bal.combined, prev.settings.allocation)
+      const delta: AllocationCents = {
+        iphone: target.iphone - bal.iphone,
+        spending: target.spending - bal.spending,
+        extra: target.extra - bal.extra,
+        charity: target.charity - bal.charity,
+      }
+      movedCents =
+        Math.abs(delta.iphone) +
+        Math.abs(delta.spending) +
+        Math.abs(delta.extra) +
+        Math.abs(delta.charity)
+      if (movedCents === 0) {
+        error = 'Pots already match your split.'
+        return prev
+      }
+      if (sumAllocation(delta) !== 0) {
+        error = 'Rebalance math failed — combined would change.'
+        return prev
+      }
+      // Also refresh unsettled PrintX splits so charity is included when you settle them.
+      const txs = prev.transactions.map((tx) => {
+        if (tx.settledAt !== null || !tx.allocation) return tx
+        const signed =
+          tx.type === 'refund' ? -Math.abs(tx.amountCents) : Math.abs(tx.amountCents)
+        return {
+          ...tx,
+          allocation: allocateCents(signed, prev.settings.allocation),
+          updatedAt: new Date().toISOString(),
+        }
+      })
+      const a = prev.settings.allocation
+      txs.push({
+        id: newId(),
+        type: 'reconcile',
+        amountCents: Math.floor(movedCents / 2),
+        date: new Date().toISOString().slice(0, 10),
+        description: `Rebalanced pots to ${a.iphone}/${a.spending}/${a.extra}/${a.charity}`,
+        allocation: delta,
+        tags: ['rebalance'],
+        createdAt: new Date().toISOString(),
+      })
+      return { ...prev, transactions: txs }
+    })
+    if (error) return { ok: false as const, error }
+    return { ok: true as const, movedCents }
+  }, [])
+
+  // One-time: if Charity % is set but the pot is still $0, apply the new split.
+  useEffect(() => {
+    if (!cloudHydrated) return
+    if (state.settings.allocation.charity <= 0) return
+    const bal = computeBalances(state.transactions)
+    if (bal.combined <= 0 || bal.charity !== 0) return
+    if (state.transactions.some((t) => t.tags?.includes('rebalance'))) return
+    rebalanceToAllocation()
+  }, [
+    cloudHydrated,
+    rebalanceToAllocation,
+    state.settings.allocation.charity,
+    state.transactions,
+  ])
+
   const resetAllData = useCallback(() => {
     clearState()
     setState(createEmptyState())
     setCelebration(null)
   }, [])
 
+  const uploadLocalToCloud = useCallback(async () => {
+    const res = await saveCloudState(state)
+    if (!res.ok) {
+      setCloudError(res.error)
+      return res
+    }
+    setCloudEmpty(false)
+    setCloudError(null)
+    return res
+  }, [state])
+
+  const lockNow = useCallback(async () => {
+    await logoutFundly()
+    window.location.reload()
+  }, [])
+
   const value: MoneyContextValue = {
     state,
     balances,
+    printxOpenRemainingCents,
+    canUndoResolvePrintx,
     addIncome,
     addSpending,
     addTransfer,
@@ -601,10 +1036,31 @@ export function MoneyProvider({ children }: { children: ReactNode }) {
     confirmAppleCash,
     reconcileAppleCash,
     importPrintxEvents,
+    settlePrintxTransaction,
+    settleAllPrintxPending,
+    rebalanceToAllocation,
+    setPrintxOpenOwed,
+    resolvePrintxNow,
+    undoResolvePrintx,
     importStatementRows,
     resetAllData,
     celebration,
     dismissCelebration: () => setCelebration(null),
+    cloud: {
+      ready: cloudReady,
+      empty: cloudEmpty,
+      lastError: cloudError,
+      uploadLocalToCloud,
+      lockNow,
+    },
+  }
+
+  if (cloudEnabled && !cloudReady) {
+    return (
+      <div className="app-bg flex min-h-screen items-center justify-center">
+        <p className="text-[var(--muted)]">Loading your Fundly cloud data…</p>
+      </div>
+    )
   }
 
   return <MoneyContext.Provider value={value}>{children}</MoneyContext.Provider>

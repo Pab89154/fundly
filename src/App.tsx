@@ -1,12 +1,16 @@
+import { useCallback, useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { MoneyProvider, useMoney } from './store/MoneyContext'
 import { Layout } from './components/Layout'
+import { LockScreen } from './components/LockScreen'
+import { fetchAuthStatus } from './lib/fundlyApi'
 import { Dashboard } from './pages/Dashboard'
 import { AddIncome } from './pages/AddIncome'
 import { Spending } from './pages/Spending'
 import { Savings } from './pages/Savings'
 import { AppleCash } from './pages/AppleCash'
 import { PrintXPage } from './pages/PrintXPage'
+import { NfcBraceletsPage } from './pages/NfcBraceletsPage'
 import { Transactions } from './pages/Transactions'
 import { ImportStatement } from './pages/ImportStatement'
 import { Settings } from './pages/Settings'
@@ -35,6 +39,7 @@ function AppRoutes() {
         <Route path="savings" element={<Savings />} />
         <Route path="apple-cash" element={<AppleCash />} />
         <Route path="printx" element={<PrintXPage />} />
+        <Route path="nfc-bracelets" element={<NfcBraceletsPage />} />
         <Route path="transactions" element={<Transactions />} />
         <Route path="import" element={<ImportStatement />} />
         <Route path="settings" element={<Settings />} />
@@ -45,8 +50,32 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const [unlocked, setUnlocked] = useState(false)
+  const onUnlocked = useCallback(() => setUnlocked(true), [])
+
+  // If the daily session expires while the tab stays open, force lock again.
+  useEffect(() => {
+    if (!unlocked) return
+    const check = () => {
+      void fetchAuthStatus().then((s) => {
+        if (!s.unlocked) window.location.reload()
+      })
+    }
+    const id = window.setInterval(check, 60_000)
+    const onFocus = () => check()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.clearInterval(id)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [unlocked])
+
+  if (!unlocked) {
+    return <LockScreen onUnlocked={onUnlocked} />
+  }
+
   return (
-    <MoneyProvider>
+    <MoneyProvider cloudEnabled>
       <BrowserRouter>
         <AppRoutes />
       </BrowserRouter>
