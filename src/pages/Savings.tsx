@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   ArrowRightLeft,
   CheckCircle2,
+  Gift,
   Heart,
   Lock,
   Smartphone,
@@ -14,8 +15,12 @@ import {
   formatTxUsd,
   formatUsd,
   localDateISO,
-  milestonesForTarget,
   milestoneLabel,
+  milestoneProgress,
+  milestoneTreat,
+  milestonesForTarget,
+  nextMilestone,
+  weeksToMilestone,
   type AccountId,
 } from '../lib/money'
 import { printxUnsettledCents } from '../lib/balances'
@@ -75,6 +80,11 @@ export function Savings() {
   const gName = goalName(state.settings)
   const gTarget = goalTargetCents(state.settings)
   const milestoneList = milestonesForTarget(gTarget)
+  const weeklyGoalIn = Math.floor(
+    ((state.settings.weeklyAllowanceCents + state.settings.expectedPrintxWeeklyCents) *
+      state.settings.allocation.iphone) /
+      100,
+  )
   const accounts: {
     id: AccountId
     title: string
@@ -268,40 +278,98 @@ export function Savings() {
       </section>
 
       <section className="card p-5">
-        <h3 className="text-lg font-bold">Milestones</h3>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {milestoneList.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">
-              Create a goal in Settings to unlock milestones.
-            </p>
-          ) : (
-            milestoneList.map((m) => {
+        <h3 className="text-lg font-bold">Milestone roadmap</h3>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Checkpoints on the way to {gName}. Edit titles and treats in Settings.
+        </p>
+        {milestoneList.length === 0 ? (
+          <p className="mt-4 text-sm text-[var(--muted)]">
+            Create a goal in Settings to unlock milestones.
+          </p>
+        ) : (
+          <ol className="relative mt-6 space-y-0 border-l border-[var(--border)] pl-5">
+            {milestoneList.map((m) => {
               const hit = balances.iphone >= m
+              const isNext = nextMilestone(balances.iphone, gTarget) === m
+              const title = milestoneLabel(m, {
+                targetCents: gTarget,
+                goalName: gName,
+                milestoneMeta: state.settings.activeGoal?.milestoneMeta,
+              })
+              const treat = milestoneTreat(m, state.settings.activeGoal?.milestoneMeta)
+              const toGo = Math.max(0, m - balances.iphone)
+              const pct = isNext
+                ? Math.round(milestoneProgress(balances.iphone, m, gTarget) * 1000) / 10
+                : hit
+                  ? 100
+                  : 0
               return (
-                <div
-                  key={m}
-                  className={`rounded-xl border p-4 ${
-                    hit
-                      ? 'border-[var(--green)]/40 bg-[var(--green)]/10'
-                      : 'border-[var(--border)] bg-[var(--card-2)]'
-                  }`}
-                >
-                  <div className="mb-2 flex items-center gap-2">
+                <li key={m} className="relative pb-6 last:pb-0">
+                  <span
+                    className={`absolute -left-[1.55rem] top-0.5 flex h-6 w-6 items-center justify-center rounded-full border ${
+                      hit
+                        ? 'border-[var(--green)] bg-[var(--green)]/20 text-[var(--green)]'
+                        : isNext
+                          ? 'border-[var(--green)] bg-[var(--card)] text-[var(--green)]'
+                          : 'border-[var(--border)] bg-[var(--card-2)] text-[var(--muted)]'
+                    }`}
+                  >
                     {hit ? (
-                      <CheckCircle2 size={18} className="text-[var(--green)]" aria-hidden />
+                      <CheckCircle2 size={14} aria-hidden />
                     ) : (
-                      <Lock size={18} className="text-[var(--muted)]" aria-hidden />
+                      <Lock size={12} aria-hidden />
                     )}
-                    <p className="font-semibold">
-                      {milestoneLabel(m, { targetCents: gTarget, goalName: gName })}
-                    </p>
+                  </span>
+                  <div
+                    className={`rounded-xl border p-4 ${
+                      isNext
+                        ? 'border-[var(--green)]/50 bg-[var(--green)]/10'
+                        : hit
+                          ? 'border-[var(--green)]/25 bg-[var(--green)]/5'
+                          : 'border-[var(--border)] bg-[var(--card-2)]'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold">{title}</p>
+                        <p className="mt-0.5 text-sm text-[var(--muted)]">{formatUsd(m)}</p>
+                      </div>
+                      {isNext ? (
+                        <span className="rounded-full bg-[var(--green)]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--green)]">
+                          Next
+                        </span>
+                      ) : hit ? (
+                        <span className="text-xs font-semibold text-[var(--green)]">Unlocked</span>
+                      ) : (
+                        <span className="text-xs text-[var(--muted)]">Upcoming</span>
+                      )}
+                    </div>
+                    {treat ? (
+                      <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--orange)]">
+                        <Gift size={12} aria-hidden />
+                        {treat}
+                      </p>
+                    ) : null}
+                    {isNext ? (
+                      <>
+                        <p className="mt-3 text-sm text-[var(--muted)]">
+                          {formatUsd(toGo)} to go
+                          {(() => {
+                            const w = weeksToMilestone(toGo, weeklyGoalIn)
+                            return w != null ? ` · ~${w} wk` : ''
+                          })()}
+                        </p>
+                        <div className="progress-track mt-2">
+                          <div className="progress-fill" style={{ width: `${pct}%` }} />
+                        </div>
+                      </>
+                    ) : null}
                   </div>
-                  <p className="text-sm text-[var(--muted)]">{hit ? 'Unlocked' : 'Locked'}</p>
-                </div>
+                </li>
               )
-            })
-          )}
-        </div>
+            })}
+          </ol>
+        )}
       </section>
 
       <form className="card space-y-4 p-5" onSubmit={onTransfer}>

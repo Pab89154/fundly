@@ -280,11 +280,19 @@ export interface Transaction {
   updatedAt?: string
 }
 
+/** Optional title + treat for a milestone checkpoint (keyed by cents string). */
+export type MilestoneMetaEntry = {
+  title: string
+  treat?: string
+}
+
 /** One active savings goal at a time (null = no goal yet). */
 export interface ActiveGoal {
   name: string
   targetCents: number
   note: string
+  /** Per-checkpoint labels/treats keyed by milestone cents string. */
+  milestoneMeta?: Record<string, MilestoneMetaEntry>
   createdAt: string
   updatedAt?: string
 }
@@ -417,6 +425,20 @@ export const DEFAULT_SETTINGS: Settings = {
   lastRecurringSkip: null,
 }
 
+export function normalizeMilestoneMeta(raw: unknown): Record<string, MilestoneMetaEntry> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Record<string, MilestoneMetaEntry> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^\d+$/.test(k) || !v || typeof v !== 'object') continue
+    const o = v as Record<string, unknown>
+    const title = String(o.title || '').trim()
+    if (!title) continue
+    const treat = String(o.treat || '').trim()
+    out[k] = treat ? { title, treat } : { title }
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 /** Normalize legacy goalCents-only saves into activeGoal. */
 export function normalizeActiveGoal(
   settings: Partial<Settings> & { goalCents?: number; activeGoal?: ActiveGoal | null },
@@ -425,10 +447,12 @@ export function normalizeActiveGoal(
   if (settings.activeGoal && typeof settings.activeGoal === 'object') {
     const name = String(settings.activeGoal.name || '').trim() || 'My goal'
     const targetCents = Math.max(0, Math.trunc(Number(settings.activeGoal.targetCents) || 0))
+    const milestoneMeta = normalizeMilestoneMeta(settings.activeGoal.milestoneMeta)
     return {
       name,
       targetCents,
       note: String(settings.activeGoal.note || ''),
+      ...(milestoneMeta ? { milestoneMeta } : {}),
       createdAt: settings.activeGoal.createdAt || new Date().toISOString(),
       updatedAt: settings.activeGoal.updatedAt,
     }

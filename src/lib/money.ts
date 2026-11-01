@@ -187,27 +187,101 @@ export function sumAllocation(a: AllocationCents): number {
 /** Legacy fixed milestones (used only if no active goal target). */
 export const MILESTONES_CENTS = [10000, 25000, 50000, 100000, 150000, 200000] as const
 
+export const MILESTONE_FRACS = [0.05, 0.125, 0.25, 0.5, 0.75, 1] as const
+
 /** Milestone checkpoints for a goal target (5% … 100%). */
 export function milestonesForTarget(targetCents: number): number[] {
   const target = Math.trunc(Number(targetCents) || 0)
   if (target <= 0) return []
-  const fracs = [0.05, 0.125, 0.25, 0.5, 0.75, 1]
   const set = new Set<number>()
-  for (const f of fracs) {
+  for (const f of MILESTONE_FRACS) {
     set.add(Math.max(1, Math.round(target * f)))
   }
   set.add(target)
   return [...set].filter((c) => c > 0 && c <= target).sort((a, b) => a - b)
 }
 
+export type MilestoneMetaMap = Record<string, { title: string; treat?: string }>
+
+/** Default titles by closest fraction of target. */
+export function defaultMilestoneTitle(
+  cents: number,
+  targetCents: number,
+  goalName = 'Goal',
+): string {
+  const target = Math.trunc(targetCents) || 0
+  const name = goalName.trim() || 'Goal'
+  if (target <= 0) return `First ${formatUsd(cents)} saved`
+  if (cents >= target) return `${name} unlocked!`
+  const ratio = cents / target
+  if (ratio <= 0.08) return 'First spark'
+  if (ratio <= 0.18) return 'Getting started'
+  if (ratio <= 0.35) return 'Quarter way'
+  if (ratio <= 0.6) return 'Halfway hero'
+  if (ratio <= 0.85) return 'Almost there'
+  return 'Final stretch'
+}
+
+export function milestoneMetaFor(
+  cents: number,
+  meta?: MilestoneMetaMap | null,
+): { title?: string; treat?: string } {
+  const entry = meta?.[String(cents)]
+  if (!entry) return {}
+  return { title: entry.title, treat: entry.treat }
+}
+
 export function milestoneLabel(
   cents: number,
-  opts?: { targetCents?: number; goalName?: string },
+  opts?: {
+    targetCents?: number
+    goalName?: string
+    milestoneMeta?: MilestoneMetaMap | null
+  },
 ): string {
   const target = opts?.targetCents ?? 0
   const name = opts?.goalName?.trim() || 'Goal'
-  if (target > 0 && cents >= target) return `${name} completed!`
+  const custom = milestoneMetaFor(cents, opts?.milestoneMeta).title?.trim()
+  if (custom) return custom
+  if (target > 0) return defaultMilestoneTitle(cents, target, name)
   return `First ${formatUsd(cents)} saved`
+}
+
+export function milestoneTreat(
+  cents: number,
+  meta?: MilestoneMetaMap | null,
+): string | undefined {
+  const t = milestoneMetaFor(cents, meta).treat?.trim()
+  return t || undefined
+}
+
+/** Next unpaid milestone above current Goal balance, or null if complete. */
+export function nextMilestone(
+  currentCents: number,
+  targetCents: number,
+): number | null {
+  const list = milestonesForTarget(targetCents)
+  for (const m of list) {
+    if (currentCents < m) return m
+  }
+  return null
+}
+
+/** Progress 0–1 from previous milestone (or 0) toward `next`. */
+export function milestoneProgress(currentCents: number, nextCents: number, targetCents: number): number {
+  const list = milestonesForTarget(targetCents)
+  const prev = [...list].reverse().find((m) => m < nextCents) ?? 0
+  const span = Math.max(1, nextCents - prev)
+  return Math.min(1, Math.max(0, (currentCents - prev) / span))
+}
+
+export function weeksToMilestone(
+  remainingCents: number,
+  weeklyGoalInflowCents: number,
+): number | null {
+  if (remainingCents <= 0) return 0
+  if (weeklyGoalInflowCents <= 0) return null
+  return Math.ceil(remainingCents / weeklyGoalInflowCents)
 }
 
 export function crossedMilestones(
@@ -218,4 +292,16 @@ export function crossedMilestones(
   const list =
     targetCents && targetCents > 0 ? milestonesForTarget(targetCents) : [...MILESTONES_CENTS]
   return list.filter((m) => prevCents < m && nextCents >= m)
+}
+
+/** Build default meta map for a target (for Settings editor). */
+export function defaultMilestoneMeta(
+  targetCents: number,
+  goalName: string,
+): MilestoneMetaMap {
+  const out: MilestoneMetaMap = {}
+  for (const c of milestonesForTarget(targetCents)) {
+    out[String(c)] = { title: defaultMilestoneTitle(c, targetCents, goalName) }
+  }
+  return out
 }
