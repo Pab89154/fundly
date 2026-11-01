@@ -1,6 +1,6 @@
 import type { Balances, Transaction } from '../types'
 import type { AccountId } from './money'
-import { normalizeAllocationCents, sumAllocation } from './money'
+import { normalizeAllocationCents, parseLocalDate, sumAllocation } from './money'
 
 export function computeBalances(transactions: Transaction[]): Balances {
   let iphone = 0
@@ -112,7 +112,7 @@ export function printxEarningsCents(
     if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
     if (!opts?.includeUnsettled && tx.settledAt === null) continue
     if (opts?.printxSource && tx.printxSource !== opts.printxSource) continue
-    if (opts?.since && new Date(tx.date) < opts.since) continue
+    if (opts?.since && parseLocalDate(tx.date) < opts.since) continue
     if (tx.allocation) {
       sum += sumAllocation(normalizeAllocationCents(tx.allocation))
     } else {
@@ -153,7 +153,7 @@ export function businessEarningsCents(
   for (const tx of transactions) {
     if (tx.source !== source) continue
     if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
-    if (opts?.since && new Date(tx.date) < opts.since) continue
+    if (opts?.since && parseLocalDate(tx.date) < opts.since) continue
     if (tx.allocation) {
       sum += sumAllocation(normalizeAllocationCents(tx.allocation))
     } else {

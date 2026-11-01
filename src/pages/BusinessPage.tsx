@@ -11,7 +11,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd, fromCents } from '../lib/money'
+import { formatUsd, fromCents, localDateISO, parseLocalDate } from '../lib/money'
 import { businessEarningsCents, startOfMonth, startOfWeek } from '../lib/balances'
 
 export function BusinessPage() {
@@ -28,10 +28,10 @@ export function BusinessPage() {
     for (const tx of state.transactions) {
       if (tx.source !== businessId) continue
       if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
-      const d = new Date(tx.date)
+      const d = parseLocalDate(tx.date)
       const weekStart = new Date(d)
       weekStart.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-      const wk = weekStart.toISOString().slice(0, 10)
+      const wk = localDateISO(weekStart)
       const delta = tx.allocation
         ? tx.allocation.iphone +
           tx.allocation.spending +

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { FileText, History, Upload, Wallet } from 'lucide-react'
 import { FundlyLogo } from '../components/FundlyLogo'
 import { useMoney } from '../store/MoneyContext'
-import { allocateCents, formatUsd, fromCents, toCents } from '../lib/money'
+import { allocateCents, formatUsd, fromCents, localDateISO, toCents } from '../lib/money'
 import { parseTransactionStatement } from '../lib/statementParse'
 import { readStatementFile, STATEMENT_FILE_ACCEPT } from '../lib/readStatementFile'
 import { NativeSelect } from '../components/NativeSelect'
@@ -76,7 +76,7 @@ export function Onboarding() {
       {
         type: 'income',
         amount: '',
-        date: new Date().toISOString().slice(0, 10),
+        date: localDateISO(),
         description: '',
         source: 'other',
       },

@@ -12,6 +12,7 @@ import {
 import { useMoney } from '../store/MoneyContext'
 import {
   formatUsd,
+  localDateISO,
   milestonesForTarget,
   milestoneLabel,
   type AccountId,
@@ -122,7 +123,7 @@ export function Savings() {
       amountUsd: Number(amount),
       from,
       to,
-      date: new Date().toISOString().slice(0, 10),
+      date: localDateISO(),
       description: 'Transfer between savings',
     })
     if (!res.ok) {

@@ -11,7 +11,7 @@ import {
 } from 'recharts'
 import { useMoney } from '../store/MoneyContext'
 import { apiUrl } from '../lib/apiBase'
-import { formatUsd, fromCents } from '../lib/money'
+import { formatUsd, fromCents, localDateISO, parseLocalDate } from '../lib/money'
 import {
   printxEarningsCents,
   startOfMonth,
@@ -58,10 +58,10 @@ export function PrintXPage() {
       if (tx.source !== 'printx' && tx.type !== 'import') continue
       if (tx.type !== 'income' && tx.type !== 'import' && tx.type !== 'refund') continue
       if (tx.settledAt === null) continue
-      const d = new Date(tx.date)
+      const d = parseLocalDate(tx.date)
       const weekStart = new Date(d)
       weekStart.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-      const wk = weekStart.toISOString().slice(0, 10)
+      const wk = localDateISO(weekStart)
       const delta = tx.allocation
         ? tx.allocation.iphone +
           tx.allocation.spending +

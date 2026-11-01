@@ -7,7 +7,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd, fromCents } from '../lib/money'
+import { formatUsd, fromCents, localDateISO } from '../lib/money'
 
 export function AppleCash() {
   const { state, balances, confirmAppleCash, reconcileAppleCash, addSpending } = useMoney()
@@ -27,7 +27,7 @@ export function AppleCash() {
   )
   const [purchase, setPurchase] = useState('')
   const [purchaseDesc, setPurchaseDesc] = useState('')
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().slice(0, 10))
+  const [purchaseDate, setPurchaseDate] = useState(localDateISO)
   const [note, setNote] = useState('')
   const [applyAdj, setApplyAdj] = useState(true)
   const [msg, setMsg] = useState('')

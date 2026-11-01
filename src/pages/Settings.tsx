@@ -12,7 +12,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { fromCents, isValidAllocationPct, toCents } from '../lib/money'
+import { fromCents, isValidAllocationPct, localDateISO, toCents } from '../lib/money'
 import { downloadCsv, transactionsToCsv } from '../lib/csv'
 import { NativeSelect } from '../components/NativeSelect'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -584,7 +584,7 @@ export function Settings() {
           className="btn btn-secondary"
           onClick={() =>
             downloadCsv(
-              `fundly-${new Date().toISOString().slice(0, 10)}.csv`,
+              `fundly-${localDateISO()}.csv`,
               transactionsToCsv(state.transactions),
             )
           }

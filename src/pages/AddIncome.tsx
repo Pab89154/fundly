@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PlusCircle } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { allocateCents, formatUsd, toCents } from '../lib/money'
+import { allocateCents, formatUsd, localDateISO, toCents } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import type { IncomeSource, PrintxPaySource } from '../types'
 
@@ -35,7 +35,7 @@ export function AddIncome() {
   const [amount, setAmount] = useState('')
   const [source, setSource] = useState<IncomeSource>(initialSource)
   const [printxSource, setPrintxSource] = useState<PrintxPaySource>('cash')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(localDateISO)
   const [description, setDescription] = useState(() => {
     const biz = state.settings.businesses.find((b) => b.id === initialSource)
     return biz ? `${biz.name} sale` : ''

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ShoppingBag } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd } from '../lib/money'
+import { formatUsd, localDateISO } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import type { SpendCategory } from '../types'
 
@@ -12,7 +12,7 @@ export function Spending() {
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<SpendCategory>('other')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(localDateISO)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
 

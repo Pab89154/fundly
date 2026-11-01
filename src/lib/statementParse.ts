@@ -36,7 +36,10 @@ function normalizeDate(raw: string): string | null {
   if (!Number.isNaN(parsed)) {
     const dt = new Date(parsed)
     if (dt.getFullYear() >= 2000 && dt.getFullYear() <= 2100) {
-      return dt.toISOString().slice(0, 10)
+      const y = dt.getFullYear()
+      const m = String(dt.getMonth() + 1).padStart(2, '0')
+      const day = String(dt.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
     }
   }
   return null

@@ -13,6 +13,7 @@ import {
   formatUsd,
   fromCents,
   isValidAllocationPct,
+  localDateISO,
   normalizeAllocationPct,
   sumAllocation,
   toCents,
@@ -335,7 +336,7 @@ export function MoneyProvider({
         id: newId(),
         type: input.appleCash ? 'apple_cash_purchase' : 'spending',
         amountCents: cents,
-        date: input.date || new Date().toISOString().slice(0, 10),
+        date: input.date || localDateISO(),
         description: input.description?.trim() || undefined,
         category: input.appleCash ? 'apple_cash' : input.category || 'other',
         createdAt: new Date().toISOString(),
@@ -360,7 +361,7 @@ export function MoneyProvider({
         id: newId(),
         type: 'transfer',
         amountCents: cents,
-        date: input.date || new Date().toISOString().slice(0, 10),
+        date: input.date || localDateISO(),
         description: input.description?.trim() || undefined,
         fromAccount: input.from,
         toAccount: input.to,
@@ -455,7 +456,7 @@ export function MoneyProvider({
     const apple = toCents(input.appleCashUsd)
     if (apple < 0) return { ok: false as const, error: 'Apple Cash balance cannot be negative.' }
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localDateISO()
 
     // Virtual pots are calculated from how much you have right now (Apple Cash).
     setState((prev) => {
@@ -563,7 +564,7 @@ export function MoneyProvider({
             id: newId(),
             type: 'reconcile',
             amountCents: Math.abs(diff),
-            date: new Date().toISOString().slice(0, 10),
+            date: localDateISO(),
             description: opts.note?.trim() || 'Apple Cash reconciliation adjustment',
             allocation: { iphone: 0, spending: diff, extra: 0, charity: 0 },
             tags: ['apple_cash', 'reconcile'],
@@ -1008,7 +1009,7 @@ export function MoneyProvider({
         id: newId(),
         type: 'reconcile',
         amountCents: Math.floor(movedCents / 2),
-        date: new Date().toISOString().slice(0, 10),
+        date: localDateISO(),
         description: `Rebalanced pots to ${a.iphone}/${a.spending}/${a.extra}/${a.charity}`,
         allocation: delta,
         tags: ['rebalance'],

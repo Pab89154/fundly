@@ -125,6 +125,27 @@ a {
   color: var(--text);
 }
 
+/* iOS/WebKit date inputs nest an inner control that clips inside .field */
+input[type='date'].field {
+  display: flex;
+  align-items: center;
+  min-height: 2.85rem;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type='date'].field::-webkit-date-and-time-value {
+  text-align: left;
+  margin-inline: 0;
+}
+
+input[type='date'].field::-webkit-calendar-picker-indicator {
+  margin-left: auto;
+  cursor: pointer;
+  opacity: 0.65;
+  padding: 0.15rem;
+}
+
 .field:focus {
   outline: none;
   border-color: var(--green);
