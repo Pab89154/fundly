@@ -190,9 +190,14 @@ export function Dashboard() {
               {weekStart} → {weekEnd}
             </p>
           </div>
-          <button type="button" className="btn btn-secondary" onClick={onLogAllowance}>
-            Log allowance
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/recurring" className="btn btn-secondary">
+              Manage recurring
+            </Link>
+            <button type="button" className="btn btn-secondary" onClick={onLogAllowance}>
+              Log allowance
+            </button>
+          </div>
         </div>
         {allowMsg ? (
           <p

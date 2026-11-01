@@ -73,6 +73,8 @@ export interface ReminderSettings {
   notifySubscriptionFail: boolean
   notifyAppleMismatch: boolean
   notifyWeeklyReview: boolean
+  /** Browser notification when a Goal milestone (or full goal) unlocks. */
+  notifyMilestone: boolean
   /** 0=Sun … 6=Sat — “See this week!” day. */
   weeklyReviewWeekday: number
 }
@@ -244,6 +246,7 @@ export function normalizeReminders(raw: unknown): ReminderSettings {
     notifySubscriptionFail: o.notifySubscriptionFail !== false,
     notifyAppleMismatch: o.notifyAppleMismatch !== false,
     notifyWeeklyReview: o.notifyWeeklyReview !== false,
+    notifyMilestone: o.notifyMilestone !== false,
     weeklyReviewWeekday: wd >= 0 && wd <= 6 ? wd : 0,
   }
 }
@@ -418,6 +421,7 @@ export const DEFAULT_SETTINGS: Settings = {
     notifySubscriptionFail: true,
     notifyAppleMismatch: true,
     notifyWeeklyReview: true,
+    notifyMilestone: true,
     weeklyReviewWeekday: 0,
   },
   pushSubscription: null,

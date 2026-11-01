@@ -334,19 +334,20 @@ export function MoneyProvider({
       const { state: next, events } = applyDueRecurring(prev)
       if (events.length === 0) return prev
       for (const ev of events) {
-        if (ev.kind === 'allowance' && next.settings.reminders.notifyAllowance) {
+        const pushOn = next.settings.reminders.webPushEnabled
+        if (pushOn && ev.kind === 'allowance' && next.settings.reminders.notifyAllowance) {
           maybeNotify('Allowance added', `+$${(ev.amountCents / 100).toFixed(2)} split into your pots.`, {
             tag: ev.externalId,
           })
         }
-        if (ev.kind === 'subscription_skip' && next.settings.reminders.notifySubscriptionFail) {
+        if (pushOn && ev.kind === 'subscription_skip' && next.settings.reminders.notifySubscriptionFail) {
           maybeNotify(
             'Subscription skipped',
             `${ev.name}: not enough Spending money.`,
             { tag: `skip-${ev.subscriptionId}-${ev.date}` },
           )
         }
-        if (ev.kind === 'weekly_review' && next.settings.reminders.notifyWeeklyReview) {
+        if (pushOn && ev.kind === 'weekly_review' && next.settings.reminders.notifyWeeklyReview) {
           maybeNotify('See this week!', 'Open Fundly to see how you did.', {
             tag: ev.weekKey,
             url: '/#this-week',

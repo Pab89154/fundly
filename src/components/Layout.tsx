@@ -7,6 +7,7 @@ import {
   PiggyBank,
   Wallet,
   Briefcase,
+  CalendarClock,
   History,
   FileText,
   Settings,
@@ -33,6 +34,7 @@ const coreNavBeforeBiz: NavItem[] = [
   { to: '/income', label: 'Add Income', icon: PlusCircle },
   { to: '/spending', label: 'Spending', icon: ShoppingBag },
   { to: '/savings', label: 'Savings', icon: PiggyBank },
+  { to: '/recurring', label: 'Recurring', icon: CalendarClock },
   { to: '/apple-cash', label: 'Apple Cash', icon: Wallet },
 ]
 

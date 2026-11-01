@@ -14,6 +14,7 @@ import { BusinessPage } from './pages/BusinessPage'
 import { Transactions } from './pages/Transactions'
 import { ImportStatement } from './pages/ImportStatement'
 import { Settings } from './pages/Settings'
+import { Recurring } from './pages/Recurring'
 import { Onboarding } from './pages/Onboarding'
 
 function Guard({ children }: { children: React.ReactNode }) {
@@ -41,6 +42,7 @@ function AppRoutes() {
         <Route path="printx" element={<PrintXPage />} />
         <Route path="business/:businessId" element={<BusinessPage />} />
         <Route path="nfc-bracelets" element={<Navigate to="/business/nfc_bracelets" replace />} />
+        <Route path="recurring" element={<Recurring />} />
         <Route path="transactions" element={<Transactions />} />
         <Route path="import" element={<ImportStatement />} />
         <Route path="settings" element={<Settings />} />

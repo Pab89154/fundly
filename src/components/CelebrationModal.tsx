@@ -28,7 +28,10 @@ export function CelebrationModal() {
       treat={treat}
       complete={complete}
       name={name}
-      notifyEnabled={state.settings.reminders?.notifyWeeklyReview !== false}
+      notifyEnabled={
+        Boolean(state.settings.reminders?.webPushEnabled) &&
+        state.settings.reminders?.notifyMilestone !== false
+      }
       onDismiss={dismissCelebration}
     />
   )
@@ -53,12 +56,15 @@ function CelebrationBody({
 }) {
   useEffect(() => {
     if (!notifyEnabled) return
+    const treatBit = treat ? ` · You earned: ${treat}` : ''
     maybeNotify(
       complete ? 'Goal complete!' : 'Milestone unlocked',
-      complete ? `${name} fund hit the target.` : `${title} · ${formatUsd(celebration)}`,
-      { tag: `milestone-${celebration}` },
+      complete
+        ? `${name} is fully funded at ${formatUsd(celebration)}.${treatBit}`
+        : `${title} · ${formatUsd(celebration)}${treatBit}`,
+      { tag: `milestone-${celebration}`, url: '/savings' },
     )
-  }, [celebration, complete, name, notifyEnabled, title])
+  }, [celebration, complete, name, notifyEnabled, title, treat])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
