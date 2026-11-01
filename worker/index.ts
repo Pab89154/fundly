@@ -186,15 +186,29 @@ export default {
 
     if (path === '/api/auth/login' && request.method === 'POST') {
       if (!password) return j({ error: 'FUNDLY_APP_PASSWORD is not set' }, 503)
-      const body = (await request.json().catch(() => ({}))) as { password?: string }
+      const body = (await request.json().catch(() => ({}))) as { password?: string; code?: string }
       if (!safeEqual(String(body.password || ''), password)) return j({ error: 'Wrong password' }, 401)
       const dayMax = secondsUntilCentralMidnight()
       if (totpSecret.length >= 16) {
-        return j(
-          { ok: true, needsTotp: true, token: pendingTok, kind: 'pending' },
-          200,
-          `${PENDING_COOKIE}=${pendingTok}; ${cookieOpts(900)}`,
-        )
+        const cleaned = String(body.code || '').replace(/\s+/g, '')
+        if (!/^\d{6}$/.test(cleaned)) {
+          return j({ error: 'Enter your 6-digit authenticator code', needsTotp: true }, 400)
+        }
+        const totp = new OTPAuth.TOTP({
+          issuer: 'Fundly',
+          label: OWNER_EMAIL,
+          algorithm: 'SHA1',
+          digits: 6,
+          period: 30,
+          secret: OTPAuth.Secret.fromBase32(totpSecret),
+        })
+        if (totp.validate({ token: cleaned, window: 1 }) === null) {
+          return j({ error: 'Wrong authenticator code' }, 401)
+        }
+        return j({ ok: true, needsTotp: false, token: fullTok, kind: 'full' }, 200, [
+          `${SESSION_COOKIE}=${fullTok}; ${cookieOpts(dayMax)}`,
+          `${PENDING_COOKIE}=; ${cookieOpts(0)}`,
+        ])
       }
       return j({ ok: true, needsTotp: false, token: fullTok, kind: 'full' }, 200, [
         `${SESSION_COOKIE}=${fullTok}; ${cookieOpts(dayMax)}`,

@@ -7,7 +7,6 @@ import {
   clearAuthCookies,
   hasFullSession,
   hasPendingSession,
-  pendingCookieHeader,
   sessionCookieHeader,
   sessionToken,
   totpConfigured,
@@ -77,17 +76,24 @@ export async function handleFundlyApi(
       return true
     }
     const password = typeof body.password === 'string' ? body.password : ''
+    const code = typeof body.code === 'string' ? body.code : ''
     if (!verifyPassword(env, password)) {
       json(res, 401, { error: 'Wrong password' })
       return true
     }
     if (totpConfigured(env)) {
-      json(
-        res,
-        200,
-        { ok: true, needsTotp: true, token: sessionToken(env, 'pending'), kind: 'pending' },
-        pendingCookieHeader(env),
-      )
+      if (!/^\d{6}$/.test(code.replace(/\s+/g, ''))) {
+        json(res, 400, { error: 'Enter your 6-digit authenticator code', needsTotp: true })
+        return true
+      }
+      if (!verifyTotp(env, code)) {
+        json(res, 401, { error: 'Wrong authenticator code' })
+        return true
+      }
+      json(res, 200, { ok: true, needsTotp: false, token: sessionToken(env, 'full'), kind: 'full' }, [
+        sessionCookieHeader(env),
+        `${'fundly_pending'}=; Path=/; Max-Age=0`,
+      ])
       return true
     }
     json(res, 200, { ok: true, needsTotp: false, token: sessionToken(env, 'full'), kind: 'full' }, [

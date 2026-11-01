@@ -49,7 +49,10 @@ export async function fetchAuthStatus(): Promise<AuthStatus> {
   return parseJson(res)
 }
 
-export async function loginWithPassword(password: string): Promise<{
+export async function loginWithPassword(
+  password: string,
+  code?: string,
+): Promise<{
   ok: boolean
   needsTotp?: boolean
   error?: string
@@ -58,7 +61,10 @@ export async function loginWithPassword(password: string): Promise<{
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({
+      password,
+      ...(code != null && code !== '' ? { code } : {}),
+    }),
   })
   const data = await parseJson<{
     ok?: boolean
@@ -68,6 +74,13 @@ export async function loginWithPassword(password: string): Promise<{
   }>(res)
   if (!res.ok) return { ok: false, error: data.error || 'Login failed' }
   if (data.token) setSessionToken(data.token)
+  // needsTotp without a full token means incomplete unlock (legacy two-step)
+  if (data.needsTotp && data.token && !code) {
+    return { ok: false, needsTotp: true, error: 'Enter your authenticator code' }
+  }
+  if (data.needsTotp && !data.token) {
+    return { ok: false, needsTotp: true, error: data.error || 'Enter your authenticator code' }
+  }
   return { ok: true, needsTotp: Boolean(data.needsTotp) }
 }
 
