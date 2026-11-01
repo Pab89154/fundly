@@ -179,10 +179,6 @@ export function LockScreen({ onUnlocked }: Props) {
         ) : null}
 
         {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-
-        <p className="text-center text-xs leading-relaxed text-[var(--muted)]">
-          On iPhone: Safari → Share → <span className="font-semibold text-[var(--text)]">Add to Home Screen</span>
-        </p>
       </div>
     </div>
   )

@@ -97,16 +97,42 @@ export function clearAuthCookies(): string[] {
   ]
 }
 
-export function hasFullSession(env: FundlyEnv, cookieHeader: string | undefined): boolean {
-  if (!authConfigured(env)) return false
-  const value = parseCookies(cookieHeader)[SESSION_COOKIE]
-  return Boolean(value && safeEqual(value, token(env, 'full')))
+export function sessionToken(env: FundlyEnv, kind: 'full' | 'pending' = 'full'): string {
+  return token(env, kind)
 }
 
-export function hasPendingSession(env: FundlyEnv, cookieHeader: string | undefined): boolean {
+function bearerFromAuthHeader(authHeader: string | undefined): string {
+  if (!authHeader) return ''
+  const m = /^Bearer\s+(.+)$/i.exec(authHeader)
+  return m?.[1]?.trim() || ''
+}
+
+export function hasFullSession(
+  env: FundlyEnv,
+  cookieHeader: string | undefined,
+  authHeader?: string,
+): boolean {
   if (!authConfigured(env)) return false
-  const value = parseCookies(cookieHeader)[PENDING_COOKIE]
-  return Boolean(value && safeEqual(value, token(env, 'pending')))
+  const expected = token(env, 'full')
+  const cookieVal = parseCookies(cookieHeader)[SESSION_COOKIE]
+  const bearer = bearerFromAuthHeader(authHeader)
+  return Boolean(
+    (cookieVal && safeEqual(cookieVal, expected)) || (bearer && safeEqual(bearer, expected)),
+  )
+}
+
+export function hasPendingSession(
+  env: FundlyEnv,
+  cookieHeader: string | undefined,
+  authHeader?: string,
+): boolean {
+  if (!authConfigured(env)) return false
+  const expected = token(env, 'pending')
+  const cookieVal = parseCookies(cookieHeader)[PENDING_COOKIE]
+  const bearer = bearerFromAuthHeader(authHeader)
+  return Boolean(
+    (cookieVal && safeEqual(cookieVal, expected)) || (bearer && safeEqual(bearer, expected)),
+  )
 }
 
 export function verifyPassword(env: FundlyEnv, provided: string): boolean {

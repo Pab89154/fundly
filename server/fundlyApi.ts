@@ -9,6 +9,7 @@ import {
   hasPendingSession,
   pendingCookieHeader,
   sessionCookieHeader,
+  sessionToken,
   totpConfigured,
   verifyPassword,
   verifyTotp,
@@ -47,16 +48,17 @@ export async function handleFundlyApi(
   const url = req.url ?? ''
   const path = url.split('?')[0] ?? ''
   const cookie = req.headers.cookie
+  const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined
   const method = req.method ?? 'GET'
 
   if (path === '/api/auth/status' && method === 'GET') {
-    const unlocked = hasFullSession(env, cookie)
+    const unlocked = hasFullSession(env, cookie, authorization)
     json(res, 200, {
       configured: authConfigured(env),
       totpConfigured: totpConfigured(env),
       supabaseConfigured: Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
       unlocked,
-      needsTotp: hasPendingSession(env, cookie) && !unlocked,
+      needsTotp: hasPendingSession(env, cookie, authorization) && !unlocked,
       ownerEmail: OWNER_EMAIL,
     })
     return true
@@ -80,10 +82,15 @@ export async function handleFundlyApi(
       return true
     }
     if (totpConfigured(env)) {
-      json(res, 200, { ok: true, needsTotp: true }, pendingCookieHeader(env))
+      json(
+        res,
+        200,
+        { ok: true, needsTotp: true, token: sessionToken(env, 'pending'), kind: 'pending' },
+        pendingCookieHeader(env),
+      )
       return true
     }
-    json(res, 200, { ok: true, needsTotp: false }, [
+    json(res, 200, { ok: true, needsTotp: false, token: sessionToken(env, 'full'), kind: 'full' }, [
       sessionCookieHeader(env),
       `${'fundly_pending'}=; Path=/; Max-Age=0`,
     ])
@@ -91,7 +98,7 @@ export async function handleFundlyApi(
   }
 
   if (path === '/api/auth/verify-totp' && method === 'POST') {
-    if (!hasPendingSession(env, cookie) && !hasFullSession(env, cookie)) {
+    if (!hasPendingSession(env, cookie, authorization) && !hasFullSession(env, cookie, authorization)) {
       json(res, 401, { error: 'Enter your password first' })
       return true
     }
@@ -111,7 +118,7 @@ export async function handleFundlyApi(
       json(res, 401, { error: 'Wrong authenticator code' })
       return true
     }
-    json(res, 200, { ok: true }, [
+    json(res, 200, { ok: true, token: sessionToken(env, 'full'), kind: 'full' }, [
       sessionCookieHeader(env),
       `${'fundly_pending'}=; Path=/; Max-Age=0`,
     ])
@@ -124,7 +131,7 @@ export async function handleFundlyApi(
   }
 
   if (path === '/api/auth/totp-setup' && method === 'GET') {
-    if (!hasPendingSession(env, cookie) && !hasFullSession(env, cookie)) {
+    if (!hasPendingSession(env, cookie, authorization) && !hasFullSession(env, cookie, authorization)) {
       json(res, 401, { error: 'Unlock with your password first' })
       return true
     }
@@ -138,7 +145,7 @@ export async function handleFundlyApi(
   }
 
   if (path === '/api/fundly/state' && method === 'GET') {
-    if (!hasFullSession(env, cookie)) {
+    if (!hasFullSession(env, cookie, authorization)) {
       json(res, 401, { error: 'Locked' })
       return true
     }
@@ -152,7 +159,7 @@ export async function handleFundlyApi(
   }
 
   if (path === '/api/fundly/state' && method === 'PUT') {
-    if (!hasFullSession(env, cookie)) {
+    if (!hasFullSession(env, cookie, authorization)) {
       json(res, 401, { error: 'Locked' })
       return true
     }

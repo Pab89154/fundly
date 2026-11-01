@@ -40,10 +40,7 @@ function applyCors(headers: Headers, request: Request): void {
   headers.set('Access-Control-Allow-Origin', origin)
   headers.set('Access-Control-Allow-Credentials', 'true')
   headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
-  headers.set(
-    'Access-Control-Allow-Headers',
-    request.headers.get('Access-Control-Request-Headers') || 'Content-Type',
-  )
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   headers.set('Vary', 'Origin')
 }
 
@@ -156,13 +153,22 @@ export default {
 
     const cookieHeader = request.headers.get('cookie')
     const cookies = parseCookies(cookieHeader)
+    const authHeader = request.headers.get('Authorization') || ''
+    const bearer = /^Bearer\s+(.+)$/i.exec(authHeader)?.[1]?.trim() || ''
     const password = (env.FUNDLY_APP_PASSWORD || '').trim()
     const totpSecret = (env.FUNDLY_TOTP_SECRET || '').trim().replace(/\s+/g, '')
     const fullTok = password ? await token(env, 'full') : ''
     const pendingTok = password ? await token(env, 'pending') : ''
-    const unlocked = Boolean(fullTok && cookies[SESSION_COOKIE] && safeEqual(cookies[SESSION_COOKIE]!, fullTok))
+    // Bearer tokens (localStorage) — cookies alone fail cross-site (GitHub Pages → Worker).
+    const unlocked = Boolean(
+      fullTok &&
+        ((cookies[SESSION_COOKIE] && safeEqual(cookies[SESSION_COOKIE]!, fullTok)) ||
+          (bearer && safeEqual(bearer, fullTok))),
+    )
     const pending = Boolean(
-      pendingTok && cookies[PENDING_COOKIE] && safeEqual(cookies[PENDING_COOKIE]!, pendingTok),
+      pendingTok &&
+        ((cookies[PENDING_COOKIE] && safeEqual(cookies[PENDING_COOKIE]!, pendingTok)) ||
+          (bearer && safeEqual(bearer, pendingTok))),
     )
     const j = (data: unknown, status = 200, cookie?: string | string[]) =>
       json(data, status, cookie, request)
@@ -184,9 +190,13 @@ export default {
       if (!safeEqual(String(body.password || ''), password)) return j({ error: 'Wrong password' }, 401)
       const dayMax = secondsUntilCentralMidnight()
       if (totpSecret.length >= 16) {
-        return j({ ok: true, needsTotp: true }, 200, `${PENDING_COOKIE}=${pendingTok}; ${cookieOpts(900)}`)
+        return j(
+          { ok: true, needsTotp: true, token: pendingTok, kind: 'pending' },
+          200,
+          `${PENDING_COOKIE}=${pendingTok}; ${cookieOpts(900)}`,
+        )
       }
-      return j({ ok: true, needsTotp: false }, 200, [
+      return j({ ok: true, needsTotp: false, token: fullTok, kind: 'full' }, 200, [
         `${SESSION_COOKIE}=${fullTok}; ${cookieOpts(dayMax)}`,
         `${PENDING_COOKIE}=; ${cookieOpts(0)}`,
       ])
@@ -208,7 +218,7 @@ export default {
       if (totp.validate({ token: cleaned, window: 1 }) === null) {
         return j({ error: 'Wrong authenticator code' }, 401)
       }
-      return j({ ok: true }, 200, [
+      return j({ ok: true, token: fullTok, kind: 'full' }, 200, [
         `${SESSION_COOKIE}=${fullTok}; ${cookieOpts(secondsUntilCentralMidnight())}`,
         `${PENDING_COOKIE}=; ${cookieOpts(0)}`,
       ])
