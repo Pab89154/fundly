@@ -15,11 +15,17 @@ export type IncomeSource = string
 
 export const SYSTEM_INCOME_SOURCES = ['printx', 'allowance', 'other', 'opening'] as const
 
-/** Manual business (NFC Bracelets, lemonade stand, …) — managed in Settings. */
+/** Business kind — PrintX is synced; others are manual sales. */
+export type BusinessKind = 'manual' | 'printx'
+
+/** Businesses (PrintX + NFC Bracelets, lemonade stand, …) — managed in Settings. */
 export interface Business {
   id: string
   name: string
   note: string
+  kind?: BusinessKind
+  /** data:image… or data:image/svg+xml… logo (upload / paste). */
+  logoDataUrl?: string | null
   /** Optional monthly sales target (cents). */
   monthlyTargetCents?: number | null
   createdAt: string
@@ -86,14 +92,33 @@ export interface RecurringSkipNotice {
   at: string
 }
 
+export const PRINTX_BUSINESS: Business = {
+  id: 'printx',
+  name: 'PrintX',
+  note: 'Synced from PrintX — Mark settled there, then Sync here.',
+  kind: 'printx',
+  logoDataUrl: null,
+  createdAt: '1970-01-01T00:00:00.000Z',
+}
+
 export const DEFAULT_BUSINESSES: Business[] = [
+  { ...PRINTX_BUSINESS },
   {
     id: 'nfc_bracelets',
     name: 'NFC Bracelets',
     note: 'Enter sales by hand (no automatic sync).',
+    kind: 'manual',
     createdAt: '1970-01-01T00:00:00.000Z',
   },
 ]
+
+export function isSystemBusinessId(id: string): boolean {
+  return id === 'printx'
+}
+
+export function businessHref(id: string): string {
+  return id === 'printx' ? '/printx' : `/business/${id}`
+}
 
 export function slugifyBusinessId(name: string): string {
   const base = name
@@ -107,6 +132,15 @@ export function slugifyBusinessId(name: string): string {
 
 export function isReservedBusinessId(id: string): boolean {
   return (SYSTEM_INCOME_SOURCES as readonly string[]).includes(id) || id === 'nfc' || !id
+}
+
+const MAX_LOGO_CHARS = 180_000
+
+function normalizeLogoDataUrl(raw: unknown): string | null {
+  if (raw == null || raw === '') return null
+  const s = String(raw)
+  if (!s.startsWith('data:image/') || s.length > MAX_LOGO_CHARS) return null
+  return s
 }
 
 export function normalizeBusinesses(raw: unknown): Business[] {
@@ -123,7 +157,7 @@ export function normalizeBusinesses(raw: unknown): Business[] {
     const name = String(o.name || '').trim()
     if (!name) continue
     if (!id) id = slugifyBusinessId(name)
-    if (isReservedBusinessId(id) && id !== 'nfc_bracelets') continue
+    if (isReservedBusinessId(id) && id !== 'nfc_bracelets' && id !== 'printx') continue
     if (seen.has(id)) continue
     seen.add(id)
     const monthlyRaw = o.monthlyTargetCents
@@ -131,14 +165,29 @@ export function normalizeBusinesses(raw: unknown): Business[] {
       monthlyRaw == null || monthlyRaw === ''
         ? null
         : Math.max(0, Math.trunc(Number(monthlyRaw) || 0))
+    const kind: BusinessKind =
+      id === 'printx' || o.kind === 'printx' ? 'printx' : 'manual'
     out.push({
       id,
-      name,
-      note: String(o.note || ''),
+      name: id === 'printx' ? String(o.name || 'PrintX').trim() || 'PrintX' : name,
+      note: String(o.note || (id === 'printx' ? PRINTX_BUSINESS.note : '')),
+      kind,
+      logoDataUrl: normalizeLogoDataUrl(o.logoDataUrl),
       monthlyTargetCents,
       createdAt: String(o.createdAt || new Date().toISOString()),
       updatedAt: o.updatedAt ? String(o.updatedAt) : undefined,
     })
+  }
+  // Always keep PrintX as a first-class business
+  if (!seen.has('printx')) {
+    out.unshift({ ...PRINTX_BUSINESS })
+  } else {
+    const idx = out.findIndex((b) => b.id === 'printx')
+    if (idx > 0) {
+      const [px] = out.splice(idx, 1)
+      out.unshift(px!)
+    }
+    out[0] = { ...out[0]!, kind: 'printx' }
   }
   return out
 }

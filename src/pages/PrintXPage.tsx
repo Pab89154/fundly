@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, RefreshCw, Store, Undo2 } from 'lucide-react'
+import { ExternalLink, RefreshCw, Undo2 } from 'lucide-react'
+import { BusinessLogo } from '../components/BusinessLogo'
 import {
   Bar,
   BarChart,
@@ -45,6 +46,7 @@ export function PrintXPage() {
       .catch(() => setStatus({ configured: false }))
   }, [])
 
+  const printxBiz = state.settings.businesses.find((b) => b.id === 'printx')
   const week = printxEarningsCents(state.transactions, { since: startOfWeek() })
   const month = printxEarningsCents(state.transactions, { since: startOfMonth() })
   const life = printxEarningsCents(state.transactions)
@@ -152,11 +154,16 @@ export function PrintXPage() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="flex items-center gap-2 text-3xl font-extrabold tracking-tight">
-            <Store size={28} className="text-[var(--green)]" aria-hidden />
-            PrintX
+            <BusinessLogo
+              business={printxBiz ?? { id: 'printx', logoDataUrl: null }}
+              size={32}
+            />
+            {printxBiz?.name || 'PrintX'}
           </h2>
           <p className="mt-2 flex flex-wrap items-center gap-1 text-[var(--muted)]">
-            Mark settled on PrintX Money, then Sync — Fundly pulls it into your pots ·{' '}
+            {printxBiz?.note?.trim() ||
+              'Mark settled on PrintX Money, then Sync — Fundly pulls it into your pots'}{' '}
+            ·{' '}
             <a
               className="inline-flex items-center gap-1 text-[var(--blue)] underline"
               href="https://printx.pw/money"

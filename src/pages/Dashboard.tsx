@@ -7,10 +7,9 @@ import {
   Heart,
   PiggyBank,
   Target,
-  Store,
-  Watch,
   Wallet,
 } from 'lucide-react'
+import { BusinessLogo } from '../components/BusinessLogo'
 import {
   CartesianGrid,
   Line,
@@ -302,19 +301,17 @@ export function Dashboard() {
           accent="green"
           icon={<PiggyBank size={16} aria-hidden />}
         />
-        <StatCard
-          label="PrintX earned"
-          value={formatUsd(printxEarningsCents(state.transactions))}
-          accent="blue"
-          icon={<Store size={16} aria-hidden />}
-        />
         {state.settings.businesses.map((b) => (
           <StatCard
             key={b.id}
             label={b.name}
-            value={formatUsd(businessEarningsCents(state.transactions, b.id))}
-            accent="orange"
-            icon={<Watch size={16} aria-hidden />}
+            value={formatUsd(
+              b.id === 'printx'
+                ? printxEarningsCents(state.transactions)
+                : businessEarningsCents(state.transactions, b.id),
+            )}
+            accent={b.id === 'printx' ? 'blue' : 'orange'}
+            icon={<BusinessLogo business={b} size={16} />}
           />
         ))}
         <StatCard

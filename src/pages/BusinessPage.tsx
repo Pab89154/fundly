@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { Briefcase, PlusCircle } from 'lucide-react'
+import { PlusCircle } from 'lucide-react'
+import { BusinessLogo } from '../components/BusinessLogo'
 import {
   Bar,
   BarChart,
@@ -76,7 +77,7 @@ export function BusinessPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-3xl font-extrabold tracking-tight">
-            <Briefcase size={28} className="text-[var(--orange)]" aria-hidden />
+            <BusinessLogo business={business} size={32} />
             {business.name}
           </h2>
           <p className="mt-2 text-[var(--muted)]">

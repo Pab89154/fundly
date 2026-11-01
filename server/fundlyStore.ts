@@ -32,9 +32,18 @@ function emptyState(): AppStateJson {
       celebratedMilestones: [],
       businesses: [
         {
+          id: 'printx',
+          name: 'PrintX',
+          note: 'Synced from PrintX — Mark settled there, then Sync here.',
+          kind: 'printx',
+          logoDataUrl: null,
+          createdAt: '1970-01-01T00:00:00.000Z',
+        },
+        {
           id: 'nfc_bracelets',
           name: 'NFC Bracelets',
           note: 'Enter sales by hand (no automatic sync).',
+          kind: 'manual',
           createdAt: '1970-01-01T00:00:00.000Z',
         },
       ],

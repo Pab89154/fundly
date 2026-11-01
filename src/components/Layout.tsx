@@ -6,7 +6,6 @@ import {
   ShoppingBag,
   PiggyBank,
   Wallet,
-  Store,
   Briefcase,
   History,
   FileText,
@@ -18,17 +17,26 @@ import {
 import { CelebrationModal } from './CelebrationModal'
 import { FundlyLogo } from './FundlyLogo'
 import { TimezonePrompt } from './TimezonePrompt'
+import { BusinessLogo } from './BusinessLogo'
 import { useMoney } from '../store/MoneyContext'
+import { businessHref, type Business } from '../types'
 
-type NavItem = { to: string; label: string; icon: typeof LayoutDashboard }
+type NavItem = {
+  to: string
+  label: string
+  icon: typeof LayoutDashboard
+  business?: Business
+}
 
-const coreNav: NavItem[] = [
+const coreNavBeforeBiz: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/income', label: 'Add Income', icon: PlusCircle },
   { to: '/spending', label: 'Spending', icon: ShoppingBag },
   { to: '/savings', label: 'Savings', icon: PiggyBank },
   { to: '/apple-cash', label: 'Apple Cash', icon: Wallet },
-  { to: '/printx', label: 'PrintX', icon: Store },
+]
+
+const coreNavAfterBiz: NavItem[] = [
   { to: '/transactions', label: 'Transactions', icon: History },
   { to: '/import', label: 'Import', icon: FileText },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -49,22 +57,15 @@ export function Layout() {
       })}`
     : 'Set a goal in Settings'
 
-  const businessNav: NavItem[] = useMemo(
-    () =>
-      state.settings.businesses.map((b) => ({
-        to: `/business/${b.id}`,
-        label: b.name,
-        icon: Briefcase,
-      })),
-    [state.settings.businesses],
-  )
-
   const nav = useMemo(() => {
-    const printxIdx = coreNav.findIndex((n) => n.to === '/printx')
-    const before = coreNav.slice(0, printxIdx + 1)
-    const after = coreNav.slice(printxIdx + 1)
-    return [...before, ...businessNav, ...after]
-  }, [businessNav])
+    const businessNav: NavItem[] = state.settings.businesses.map((b) => ({
+      to: businessHref(b.id),
+      label: b.name,
+      icon: Briefcase,
+      business: b,
+    }))
+    return [...coreNavBeforeBiz, ...businessNav, ...coreNavAfterBiz]
+  }, [state.settings.businesses])
 
   const mobilePrimary = nav.filter((item) => mobilePrimaryPaths.has(item.to))
   const mobileMore = nav.filter((item) => !mobilePrimaryPaths.has(item.to))
@@ -94,7 +95,7 @@ export function Layout() {
             <p className="mt-1 text-sm text-[var(--muted)]">{goalLine}</p>
           </div>
           <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
-            {nav.map(({ to, label, icon: Icon }) => (
+            {nav.map(({ to, label, icon: Icon, business }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -107,7 +108,7 @@ export function Layout() {
                   }`
                 }
               >
-                <Icon size={18} />
+                {business ? <BusinessLogo business={business} size={18} /> : <Icon size={18} />}
                 {label}
               </NavLink>
             ))}
@@ -134,7 +135,7 @@ export function Layout() {
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-3xl items-stretch gap-0.5 px-1 py-1.5">
-          {mobilePrimary.map(({ to, label, icon: Icon }) => (
+          {mobilePrimary.map(({ to, label, icon: Icon, business }) => (
             <NavLink
               key={to}
               to={to}
@@ -145,7 +146,7 @@ export function Layout() {
                 }`
               }
             >
-              <Icon size={18} />
+              {business ? <BusinessLogo business={business} size={18} /> : <Icon size={18} />}
               <span className="truncate">{label.split(' ')[0]}</span>
             </NavLink>
           ))}
@@ -185,7 +186,7 @@ export function Layout() {
               </button>
             </div>
             <div className="grid grid-cols-3 gap-2 px-3 pb-2">
-              {mobileMore.map(({ to, label, icon: Icon }) => (
+              {mobileMore.map(({ to, label, icon: Icon, business }) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -195,7 +196,7 @@ export function Layout() {
                     }`
                   }
                 >
-                  <Icon size={20} />
+                  {business ? <BusinessLogo business={business} size={20} /> : <Icon size={20} />}
                   <span>{label}</span>
                 </NavLink>
               ))}

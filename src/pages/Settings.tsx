@@ -23,6 +23,7 @@ import { NativeSelect } from '../components/NativeSelect'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import {
   isReservedBusinessId,
+  isSystemBusinessId,
   slugifyBusinessId,
   type ActiveGoal,
   type Business,
@@ -30,7 +31,10 @@ import {
   type Subscription,
 } from '../types'
 import { newId } from '../lib/storage'
+import { defaultPrintxLogoUrl } from '../lib/businessLogo'
 import { zonedDateISO } from '../lib/timezone'
+import { LogoUploadPaste } from '../components/LogoUploadPaste'
+import { BusinessLogo } from '../components/BusinessLogo'
 
 const WEEKDAYS = [
   { value: '0', label: 'Sunday' },
@@ -81,6 +85,7 @@ export function Settings() {
   const [bizName, setBizName] = useState('')
   const [bizNote, setBizNote] = useState('')
   const [bizMonthly, setBizMonthly] = useState('')
+  const [bizLogo, setBizLogo] = useState<string | null>(null)
   const [subEditingId, setSubEditingId] = useState<string | null>(null)
   const [subCreating, setSubCreating] = useState(false)
   const [subName, setSubName] = useState('')
@@ -147,6 +152,7 @@ export function Settings() {
     setBizName('')
     setBizNote('')
     setBizMonthly('')
+    setBizLogo(null)
     setErr('')
     setMsg('')
   }
@@ -161,6 +167,7 @@ export function Settings() {
         ? fromCents(b.monthlyTargetCents).toFixed(2)
         : '',
     )
+    setBizLogo(b.logoDataUrl ?? null)
     setErr('')
     setMsg('')
   }
@@ -171,6 +178,7 @@ export function Settings() {
     setBizName('')
     setBizNote('')
     setBizMonthly('')
+    setBizLogo(null)
   }
 
   const saveBusiness = (e: React.FormEvent) => {
@@ -192,11 +200,14 @@ export function Settings() {
         return
       }
       const monthlyCents = bizMonthly.trim() ? toCents(Number(bizMonthly)) : null
+      const prev = list[idx]!
       list[idx] = {
-        ...list[idx]!,
-        name,
+        ...prev,
+        name: isSystemBusinessId(prev.id) ? prev.name : name,
         note: bizNote.trim(),
+        logoDataUrl: bizLogo,
         monthlyTargetCents: monthlyCents && monthlyCents > 0 ? monthlyCents : null,
+        kind: prev.id === 'printx' ? 'printx' : 'manual',
         updatedAt: now,
       }
       const res = updateSettings({ businesses: list })
@@ -222,6 +233,8 @@ export function Settings() {
       id,
       name,
       note: bizNote.trim(),
+      kind: 'manual',
+      logoDataUrl: bizLogo,
       monthlyTargetCents: monthlyCents && monthlyCents > 0 ? monthlyCents : null,
       createdAt: now,
     })
@@ -238,6 +251,10 @@ export function Settings() {
     const id = confirmDeleteBusinessId
     setConfirmDeleteBusinessId(null)
     if (!id) return
+    if (isSystemBusinessId(id)) {
+      setErr('PrintX can’t be removed — it’s a built-in business.')
+      return
+    }
     const list = state.settings.businesses.filter((b) => b.id !== id)
     const res = updateSettings({ businesses: list })
     if (!res.ok) {
@@ -412,8 +429,7 @@ export function Settings() {
               Businesses
             </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Manual income sources (NFC Bracelets, lemonade stand, …). PrintX stays separate with
-              Sync.
+              PrintX (synced) plus manual shops. Upload or paste a logo (PNG/JPEG/SVG) for each.
             </p>
           </div>
           {!bizCreating && !bizEditingId ? (
@@ -433,9 +449,17 @@ export function Settings() {
                 key={b.id}
                 className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
               >
-                <div className="min-w-0">
-                  <p className="font-semibold">{b.name}</p>
-                  {b.note ? <p className="text-sm text-[var(--muted)]">{b.note}</p> : null}
+                <div className="flex min-w-0 items-center gap-3">
+                  <BusinessLogo business={b} size={36} />
+                  <div className="min-w-0">
+                    <p className="font-semibold">
+                      {b.name}
+                      {b.kind === 'printx' || b.id === 'printx' ? (
+                        <span className="ml-2 text-xs font-semibold text-[var(--blue)]">Synced</span>
+                      ) : null}
+                    </p>
+                    {b.note ? <p className="text-sm text-[var(--muted)]">{b.note}</p> : null}
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -446,14 +470,16 @@ export function Settings() {
                     <Pencil size={14} aria-hidden />
                     Edit
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-danger px-3 py-1.5 text-xs"
-                    onClick={() => setConfirmDeleteBusinessId(b.id)}
-                  >
-                    <Trash2 size={14} aria-hidden />
-                    Remove
-                  </button>
+                  {!isSystemBusinessId(b.id) ? (
+                    <button
+                      type="button"
+                      className="btn btn-danger px-3 py-1.5 text-xs"
+                      onClick={() => setConfirmDeleteBusinessId(b.id)}
+                    >
+                      <Trash2 size={14} aria-hidden />
+                      Remove
+                    </button>
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -463,8 +489,17 @@ export function Settings() {
         {bizCreating || bizEditingId ? (
           <form className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-4" onSubmit={saveBusiness}>
             <p className="text-sm font-semibold">
-              {bizEditingId ? 'Edit business' : 'New business'}
+              {bizEditingId
+                ? isSystemBusinessId(bizEditingId)
+                  ? 'Edit PrintX business'
+                  : 'Edit business'
+                : 'New business'}
             </p>
+            <LogoUploadPaste
+              value={bizLogo}
+              onChange={setBizLogo}
+              previewFallback={bizEditingId === 'printx' ? defaultPrintxLogoUrl() : null}
+            />
             <div>
               <label className="label">Name</label>
               <input
@@ -473,6 +508,7 @@ export function Settings() {
                 onChange={(e) => setBizName(e.target.value)}
                 placeholder="NFC Bracelets, lemonade stand…"
                 required
+                disabled={Boolean(bizEditingId && isSystemBusinessId(bizEditingId))}
               />
             </div>
             <div>
