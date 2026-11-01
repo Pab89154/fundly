@@ -74,18 +74,6 @@ export function Spending() {
           />
         </div>
         <div>
-          <label className="label" htmlFor="desc">
-            Description
-          </label>
-          <input
-            id="desc"
-            className="field"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Snack after school"
-          />
-        </div>
-        <div>
           <label className="label" htmlFor="cat">
             Category
           </label>
@@ -94,6 +82,18 @@ export function Spending() {
             value={category}
             onChange={(v) => setCategory(v as SpendCategory)}
             options={categories.map((c) => ({ value: c, label: c }))}
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="desc">
+            {category === 'other' ? 'Specify (optional)' : 'Description'}
+          </label>
+          <input
+            id="desc"
+            className="field"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={category === 'other' ? 'What was this for?' : 'Snack after school'}
           />
         </div>
         <div>

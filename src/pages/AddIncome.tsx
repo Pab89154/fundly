@@ -155,7 +155,7 @@ export function AddIncome() {
         </div>
         <div>
           <label className="label" htmlFor="desc">
-            Description
+            {source === 'other' ? 'Specify (optional)' : 'Description'}
           </label>
           <input
             id="desc"
@@ -163,11 +163,13 @@ export function AddIncome() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={
-              selectedBusiness
-                ? `${selectedBusiness.name} sale`
-                : source === 'printx'
-                  ? 'Weekly PrintX sales'
-                  : 'What was this for?'
+              source === 'other'
+                ? 'Gift, refund, chore money…'
+                : selectedBusiness
+                  ? `${selectedBusiness.name} sale`
+                  : source === 'printx'
+                    ? 'Weekly PrintX sales'
+                    : 'What was this for?'
             }
           />
         </div>
