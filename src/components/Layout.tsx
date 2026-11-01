@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   PlusCircle,
@@ -11,6 +12,8 @@ import {
   FileText,
   Settings,
   LogOut,
+  MoreHorizontal,
+  X,
 } from 'lucide-react'
 import { CelebrationModal } from './CelebrationModal'
 import { FundlyLogo } from './FundlyLogo'
@@ -29,8 +32,16 @@ const nav = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
+/** Primary tabs for cover + open Duo phones (no horizontal scroll). */
+const mobilePrimary = nav.filter((item) =>
+  ['/', '/income', '/spending', '/savings', '/printx'].includes(item.to),
+)
+const mobileMore = nav.filter((item) => !mobilePrimary.some((p) => p.to === item.to))
+
 export function Layout() {
   const { cloud, state } = useMoney()
+  const location = useLocation()
+  const [moreOpen, setMoreOpen] = useState(false)
   const goal = state.settings.activeGoal
   const goalLine = goal
     ? `${goal.name} · ${(goal.targetCents / 100).toLocaleString('en-US', {
@@ -39,6 +50,16 @@ export function Layout() {
         maximumFractionDigits: 0,
       })}`
     : 'Set a goal in Settings'
+
+  const moreActive = mobileMore.some(
+    (item) =>
+      location.pathname === item.to ||
+      (item.to !== '/' && location.pathname.startsWith(item.to)),
+  )
+
+  useEffect(() => {
+    setMoreOpen(false)
+  }, [location.pathname])
 
   return (
     <div className="app-bg flex min-h-dvh w-full flex-col">
@@ -92,15 +113,16 @@ export function Layout() {
         </main>
       </div>
 
+      {/* Cover (5.4") + open (7.6") phones: 5 tabs + More — no sideways scroll */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-        <div className="mx-auto flex max-w-3xl gap-1 overflow-x-auto px-2 py-2">
-          {nav.map(({ to, label, icon: Icon }) => (
+        <div className="mx-auto flex max-w-3xl items-stretch gap-0.5 px-1 py-1.5">
+          {mobilePrimary.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex min-w-[4.5rem] flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-semibold ${
+                `flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
                   isActive ? 'text-[var(--green)]' : 'text-[var(--muted)]'
                 }`
               }
@@ -111,14 +133,66 @@ export function Layout() {
           ))}
           <button
             type="button"
-            className="flex min-w-[4.5rem] flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-semibold text-[var(--muted)]"
-            onClick={() => void cloud.lockNow()}
+            className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
+              moreOpen || moreActive ? 'text-[var(--green)]' : 'text-[var(--muted)]'
+            }`}
+            onClick={() => setMoreOpen((v) => !v)}
+            aria-expanded={moreOpen}
+            aria-label="More"
           >
-            <LogOut size={18} aria-hidden />
-            <span>Logout</span>
+            <MoreHorizontal size={18} aria-hidden />
+            <span>More</span>
           </button>
         </div>
       </nav>
+
+      {moreOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="More">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="Close"
+            onClick={() => setMoreOpen(false)}
+          />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-3xl border border-[var(--border)] bg-[var(--card)] pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-xl">
+            <div className="mb-2 flex items-center justify-between px-4">
+              <p className="text-sm font-bold">More</p>
+              <button
+                type="button"
+                className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--card-2)] hover:text-[var(--text)]"
+                onClick={() => setMoreOpen(false)}
+                aria-label="Close more menu"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 px-3 pb-2">
+              {mobileMore.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold ${
+                      isActive ? 'text-[var(--green)]' : 'text-[var(--text)]'
+                    }`
+                  }
+                >
+                  <Icon size={20} />
+                  <span>{label}</span>
+                </NavLink>
+              ))}
+              <button
+                type="button"
+                className="flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold text-[var(--muted)]"
+                onClick={() => void cloud.lockNow()}
+              >
+                <LogOut size={20} aria-hidden />
+                <span>Log out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
