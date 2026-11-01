@@ -18,6 +18,7 @@ function moneyTrackerApiPlugin(env: Record<string, string>): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
+    base: env.VITE_BASE || '/',
     plugins: [react(), tailwindcss(), moneyTrackerApiPlugin(env)],
     server: {
       port: 7687,

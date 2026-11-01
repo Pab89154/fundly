@@ -76,7 +76,7 @@ export default function App() {
 
   return (
     <MoneyProvider cloudEnabled>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || undefined}>
         <AppRoutes />
       </BrowserRouter>
     </MoneyProvider>

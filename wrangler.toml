@@ -1,17 +1,21 @@
-name = "my-money-tracker"
+name = "fundly"
 main = "worker/index.ts"
 compatibility_date = "2025-10-01"
+compatibility_flags = ["nodejs_compat"]
 
 # Secrets (never commit real values):
+#   wrangler secret put FUNDLY_APP_PASSWORD
+#   wrangler secret put FUNDLY_SESSION_SECRET
+#   wrangler secret put FUNDLY_TOTP_SECRET
+#   wrangler secret put SUPABASE_URL
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 #   wrangler secret put PRINTX_MONEY_TRACKER_API_KEY
 #   wrangler secret put MONEY_TRACKER_WEBHOOK_HMAC_SECRET
-# Optional var:
-#   PRINTX_API_BASE = "https://printx.pw"
 
 [vars]
 PRINTX_API_BASE = "https://printx.pw"
 
-# Uncomment after first build when deploying privately:
+# Optional: also serve the Vite build from this Worker
 # [assets]
 # directory = "./dist"
 # binding = "ASSETS"

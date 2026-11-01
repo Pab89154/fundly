@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useMoney } from '../store/MoneyContext'
+import { apiUrl } from '../lib/apiBase'
 import { formatUsd, fromCents } from '../lib/money'
 import {
   printxEarningsCents,
@@ -40,7 +41,7 @@ export function PrintXPage() {
   const [err, setErr] = useState('')
 
   useEffect(() => {
-    fetch('/api/printx/status')
+    fetch(apiUrl('/api/printx/status'))
       .then((r) => r.json())
       .then((d: SyncStatus) => setStatus(d))
       .catch(() => setStatus({ configured: false }))
@@ -92,8 +93,9 @@ export function PrintXPage() {
     setErr('')
     setMsg('')
     try {
-      const res = await fetch('/api/printx/sync', {
+      const res = await fetch(apiUrl('/api/printx/sync'), {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ since: state.settings.syncCursor || undefined }),
       })

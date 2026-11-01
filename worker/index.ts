@@ -21,8 +21,35 @@ const OWNER_EMAIL = 'pmolinasamayoa@icloud.com'
 const SESSION_COOKIE = 'fundly_session'
 const PENDING_COOKIE = 'fundly_pending'
 
-function json(data: unknown, status = 200, cookies?: string | string[]): Response {
+const ALLOWED_ORIGINS = new Set([
+  'https://pab89154.github.io',
+  'http://localhost:7687',
+  'http://127.0.0.1:7687',
+])
+
+function corsOrigin(request: Request): string | null {
+  const origin = request.headers.get('Origin')
+  if (!origin) return null
+  if (ALLOWED_ORIGINS.has(origin)) return origin
+  return null
+}
+
+function applyCors(headers: Headers, request: Request): void {
+  const origin = corsOrigin(request)
+  if (!origin) return
+  headers.set('Access-Control-Allow-Origin', origin)
+  headers.set('Access-Control-Allow-Credentials', 'true')
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+  headers.set(
+    'Access-Control-Allow-Headers',
+    request.headers.get('Access-Control-Request-Headers') || 'Content-Type',
+  )
+  headers.set('Vary', 'Origin')
+}
+
+function json(data: unknown, status = 200, cookies?: string | string[], request?: Request): Response {
   const headers = new Headers({ 'Content-Type': 'application/json' })
+  if (request) applyCors(headers, request)
   if (cookies) {
     const list = Array.isArray(cookies) ? cookies : [cookies]
     for (const c of list) headers.append('Set-Cookie', c)
@@ -53,8 +80,9 @@ function safeEqual(a: string, b: string): boolean {
   return out === 0
 }
 
+/** SameSite=None so GitHub Pages (cross-site) can use credentialed fetch. */
 function cookieOpts(maxAge?: number): string {
-  const parts = ['Path=/', 'HttpOnly', 'SameSite=Strict', 'Secure']
+  const parts = ['Path=/', 'HttpOnly', 'SameSite=None', 'Secure']
   if (typeof maxAge === 'number') parts.push(`Max-Age=${maxAge}`)
   return parts.join('; ')
 }
@@ -118,6 +146,14 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
+
+    if (request.method === 'OPTIONS' && path.startsWith('/api/')) {
+      const headers = new Headers()
+      applyCors(headers, request)
+      headers.set('Access-Control-Max-Age', '86400')
+      return new Response(null, { status: 204, headers })
+    }
+
     const cookieHeader = request.headers.get('cookie')
     const cookies = parseCookies(cookieHeader)
     const password = (env.FUNDLY_APP_PASSWORD || '').trim()
@@ -128,9 +164,11 @@ export default {
     const pending = Boolean(
       pendingTok && cookies[PENDING_COOKIE] && safeEqual(cookies[PENDING_COOKIE]!, pendingTok),
     )
+    const j = (data: unknown, status = 200, cookie?: string | string[]) =>
+      json(data, status, cookie, request)
 
     if (path === '/api/auth/status' && request.method === 'GET') {
-      return json({
+      return j({
         configured: Boolean(password),
         totpConfigured: totpSecret.length >= 16,
         supabaseConfigured: Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
@@ -141,22 +179,22 @@ export default {
     }
 
     if (path === '/api/auth/login' && request.method === 'POST') {
-      if (!password) return json({ error: 'FUNDLY_APP_PASSWORD is not set' }, 503)
+      if (!password) return j({ error: 'FUNDLY_APP_PASSWORD is not set' }, 503)
       const body = (await request.json().catch(() => ({}))) as { password?: string }
-      if (!safeEqual(String(body.password || ''), password)) return json({ error: 'Wrong password' }, 401)
+      if (!safeEqual(String(body.password || ''), password)) return j({ error: 'Wrong password' }, 401)
       const dayMax = secondsUntilCentralMidnight()
       if (totpSecret.length >= 16) {
-        return json({ ok: true, needsTotp: true }, 200, `${PENDING_COOKIE}=${pendingTok}; ${cookieOpts(900)}`)
+        return j({ ok: true, needsTotp: true }, 200, `${PENDING_COOKIE}=${pendingTok}; ${cookieOpts(900)}`)
       }
-      return json({ ok: true, needsTotp: false }, 200, [
+      return j({ ok: true, needsTotp: false }, 200, [
         `${SESSION_COOKIE}=${fullTok}; ${cookieOpts(dayMax)}`,
         `${PENDING_COOKIE}=; ${cookieOpts(0)}`,
       ])
     }
 
     if (path === '/api/auth/verify-totp' && request.method === 'POST') {
-      if (!pending && !unlocked) return json({ error: 'Enter your password first' }, 401)
-      if (totpSecret.length < 16) return json({ error: 'Authenticator is not set up yet' }, 400)
+      if (!pending && !unlocked) return j({ error: 'Enter your password first' }, 401)
+      if (totpSecret.length < 16) return j({ error: 'Authenticator is not set up yet' }, 400)
       const body = (await request.json().catch(() => ({}))) as { code?: string }
       const cleaned = String(body.code || '').replace(/\s+/g, '')
       const totp = new OTPAuth.TOTP({
@@ -168,24 +206,24 @@ export default {
         secret: OTPAuth.Secret.fromBase32(totpSecret),
       })
       if (totp.validate({ token: cleaned, window: 1 }) === null) {
-        return json({ error: 'Wrong authenticator code' }, 401)
+        return j({ error: 'Wrong authenticator code' }, 401)
       }
-      return json({ ok: true }, 200, [
+      return j({ ok: true }, 200, [
         `${SESSION_COOKIE}=${fullTok}; ${cookieOpts(secondsUntilCentralMidnight())}`,
         `${PENDING_COOKIE}=; ${cookieOpts(0)}`,
       ])
     }
 
     if (path === '/api/auth/logout' && request.method === 'POST') {
-      return json({ ok: true }, 200, [
+      return j({ ok: true }, 200, [
         `${SESSION_COOKIE}=; ${cookieOpts(0)}`,
         `${PENDING_COOKIE}=; ${cookieOpts(0)}`,
       ])
     }
 
     if (path === '/api/auth/totp-setup' && request.method === 'GET') {
-      if (!pending && !unlocked) return json({ error: 'Unlock with your password first' }, 401)
-      if (totpSecret.length < 16) return json({ error: 'FUNDLY_TOTP_SECRET is not set' }, 400)
+      if (!pending && !unlocked) return j({ error: 'Unlock with your password first' }, 401)
+      if (totpSecret.length < 16) return j({ error: 'FUNDLY_TOTP_SECRET is not set' }, 400)
       const totp = new OTPAuth.TOTP({
         issuer: 'Fundly',
         label: OWNER_EMAIL,
@@ -194,27 +232,27 @@ export default {
         period: 30,
         secret: OTPAuth.Secret.fromBase32(totpSecret),
       })
-      return json({ ok: true, otpauthUrl: totp.toString(), qrDataUrl: null })
+      return j({ ok: true, otpauthUrl: totp.toString(), qrDataUrl: null })
     }
 
     if (path === '/api/fundly/state' && request.method === 'GET') {
-      if (!unlocked) return json({ error: 'Locked' }, 401)
+      if (!unlocked) return j({ error: 'Locked' }, 401)
       const client = sb(env)
-      if (!client) return json({ error: 'Supabase is not configured' }, 500)
+      if (!client) return j({ error: 'Supabase is not configured' }, 500)
       const { data, error } = await client
         .from('fundly_app_state')
         .select('state')
         .eq('owner_email', OWNER_EMAIL)
         .maybeSingle()
-      if (error) return json({ error: error.message }, 500)
-      if (!data?.state) return json({ state: { version: 1, settings: {}, transactions: [] }, empty: true })
-      return json({ state: data.state, empty: false })
+      if (error) return j({ error: error.message }, 500)
+      if (!data?.state) return j({ state: { version: 1, settings: {}, transactions: [] }, empty: true })
+      return j({ state: data.state, empty: false })
     }
 
     if (path === '/api/fundly/state' && request.method === 'PUT') {
-      if (!unlocked) return json({ error: 'Locked' }, 401)
+      if (!unlocked) return j({ error: 'Locked' }, 401)
       const client = sb(env)
-      if (!client) return json({ error: 'Supabase is not configured' }, 500)
+      if (!client) return j({ error: 'Supabase is not configured' }, 500)
       const body = (await request.json().catch(() => ({}))) as { state?: unknown }
       const { error } = await client.from('fundly_app_state').upsert(
         {
@@ -224,12 +262,12 @@ export default {
         },
         { onConflict: 'owner_email' },
       )
-      if (error) return json({ error: error.message }, 500)
-      return json({ ok: true })
+      if (error) return j({ error: error.message }, 500)
+      return j({ ok: true })
     }
 
     if (path === '/api/printx/status' && request.method === 'GET') {
-      return json({
+      return j({
         configured: Boolean(env.PRINTX_MONEY_TRACKER_API_KEY?.trim()),
         base: env.PRINTX_API_BASE || 'https://printx.pw',
       })
@@ -239,7 +277,7 @@ export default {
       const apiKey = env.PRINTX_MONEY_TRACKER_API_KEY?.trim()
       const base = (env.PRINTX_API_BASE || 'https://printx.pw').replace(/\/$/, '')
       if (!apiKey) {
-        return json(
+        return j(
           {
             error:
               'PrintX sync is not configured. Set PRINTX_MONEY_TRACKER_API_KEY as a Worker secret.',
@@ -261,9 +299,12 @@ export default {
       })
       const data = await upstream.json().catch(() => ({ error: 'Invalid upstream JSON' }))
       if (!upstream.ok) {
-        return json({ error: 'PrintX feed request failed', status: upstream.status, data, configured: true }, upstream.status)
+        return j(
+          { error: 'PrintX feed request failed', status: upstream.status, data, configured: true },
+          upstream.status,
+        )
       }
-      return json({ ...(data as object), configured: true })
+      return j({ ...(data as object), configured: true })
     }
 
     if (path === '/api/printx/webhook' && request.method === 'POST') {
@@ -273,11 +314,12 @@ export default {
         raw,
         request.headers.get('x-money-tracker-signature'),
       )
-      if (!ok) return json({ error: 'Invalid signature' }, 401)
-      return json({ ok: true, receivedAt: new Date().toISOString() })
+      if (!ok) return j({ error: 'Invalid signature' }, 401)
+      return j({ ok: true, receivedAt: new Date().toISOString() })
     }
 
     if (env.ASSETS) return env.ASSETS.fetch(request)
-    return new Response('Not found', { status: 404 })
+    const notFound = new Response('Not found', { status: 404 })
+    return notFound
   },
 }
