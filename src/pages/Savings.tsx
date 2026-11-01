@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import {
+  formatTxUsd,
   formatUsd,
   localDateISO,
   milestonesForTarget,
@@ -243,7 +244,7 @@ export function Savings() {
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <p className="font-extrabold text-[var(--orange)]">{formatUsd(t.amountCents)}</p>
+                  <p className="font-extrabold text-[var(--orange)]">{formatTxUsd(t)}</p>
                   <button
                     type="button"
                     className="btn btn-secondary px-3 py-1 text-xs"

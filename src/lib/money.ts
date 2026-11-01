@@ -47,6 +47,36 @@ export function formatUsd(cents: number): string {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 }
 
+export type MoneyDirection = 'in' | 'out' | 'neutral'
+
+/** Money in (+), money out (−), or plain for transfers/reconcile. */
+export function txMoneyDirection(type: string): MoneyDirection {
+  switch (type) {
+    case 'income':
+    case 'import':
+    case 'opening':
+    case 'refund':
+      return 'in'
+    case 'spending':
+    case 'apple_cash_purchase':
+      return 'out'
+    default:
+      return 'neutral'
+  }
+}
+
+/** Always shows a leading + or − for in/out; balances stay unsigned via formatUsd. */
+export function formatSignedUsd(cents: number, direction: MoneyDirection): string {
+  const abs = formatUsd(Math.abs(cents))
+  if (direction === 'in') return `+${abs}`
+  if (direction === 'out') return `−${abs}`
+  return abs
+}
+
+export function formatTxUsd(tx: { type: string; amountCents: number }): string {
+  return formatSignedUsd(tx.amountCents, txMoneyDirection(tx.type))
+}
+
 /** YYYY-MM-DD in the user's local timezone (avoid UTC off-by-one from toISOString). */
 export function localDateISO(d: Date = new Date()): string {
   const y = d.getFullYear()

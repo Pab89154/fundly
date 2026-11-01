@@ -62,16 +62,24 @@ export function Spending() {
           <label className="label" htmlFor="amount">
             Amount
           </label>
-          <input
-            id="amount"
-            className="field"
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            required
-          />
+          <div className="relative">
+            <span
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-extrabold text-[var(--danger)]"
+              aria-hidden
+            >
+              −
+            </span>
+            <input
+              id="amount"
+              className="field pl-8"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
+          </div>
         </div>
         <div>
           <label className="label" htmlFor="cat">

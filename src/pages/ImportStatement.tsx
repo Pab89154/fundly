@@ -179,7 +179,7 @@ export function ImportStatement() {
             <div>
               <h3 className="font-bold">From file preview</h3>
               <p className="text-sm text-[var(--muted)]">
-                {selected.length} selected · income {formatUsd(incomeTotal)} · spending{' '}
+                {selected.length} selected · income +{formatUsd(incomeTotal)} · spending −
                 {formatUsd(spendTotal)}
               </p>
               <p className="mt-1 text-xs text-[var(--muted)]">

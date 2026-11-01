@@ -11,7 +11,7 @@ import {
 } from 'recharts'
 import { useMoney } from '../store/MoneyContext'
 import { apiUrl } from '../lib/apiBase'
-import { formatUsd, fromCents, localDateISO, parseLocalDate } from '../lib/money'
+import { formatTxUsd, formatUsd, fromCents, localDateISO, parseLocalDate } from '../lib/money'
 import {
   printxEarningsCents,
   startOfMonth,
@@ -290,7 +290,7 @@ export function PrintXPage() {
                     {t.date} · {t.settledAt === null ? 'waiting' : 'in pots'}
                   </p>
                 </div>
-                <p className="font-extrabold">{formatUsd(t.amountCents)}</p>
+                <p className="font-extrabold text-[var(--green)]">{formatTxUsd(t)}</p>
               </li>
             ))}
           </ul>

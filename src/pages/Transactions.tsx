@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, History } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd } from '../lib/money'
+import { formatTxUsd, formatUsd, txMoneyDirection } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { TxType } from '../types'
@@ -155,7 +155,17 @@ export function Transactions() {
                       ) : null}
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-extrabold">{formatUsd(t.amountCents)}</p>
+                      <p
+                        className={`text-lg font-extrabold ${
+                          txMoneyDirection(t.type) === 'in'
+                            ? 'text-[var(--green)]'
+                            : txMoneyDirection(t.type) === 'out'
+                              ? 'text-[var(--danger)]'
+                              : ''
+                        }`}
+                      >
+                        {formatTxUsd(t)}
+                      </p>
                       <div className="mt-2 flex justify-end gap-2">
                         <button type="button" className="btn btn-secondary px-3 py-1 text-xs" onClick={() => startEdit(t.id)}>
                           Edit

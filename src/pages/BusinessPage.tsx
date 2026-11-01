@@ -11,7 +11,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd, fromCents, localDateISO, parseLocalDate } from '../lib/money'
+import { formatTxUsd, formatUsd, fromCents, localDateISO, parseLocalDate } from '../lib/money'
 import { businessEarningsCents, startOfMonth, startOfWeek } from '../lib/balances'
 
 export function BusinessPage() {
@@ -131,7 +131,7 @@ export function BusinessPage() {
                   <p className="font-semibold">{t.description || `${business.name} sale`}</p>
                   <p className="text-sm text-[var(--muted)]">{t.date}</p>
                 </div>
-                <p className="font-extrabold">{formatUsd(t.amountCents)}</p>
+                <p className="font-extrabold text-[var(--green)]">{formatTxUsd(t)}</p>
               </li>
             ))
           )}
