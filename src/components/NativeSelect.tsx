@@ -59,7 +59,7 @@ export function NativeSelect({
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((o) => !o)}
-        className="field flex w-full items-center justify-between gap-2 text-left font-medium disabled:opacity-50"
+        className="press-pop field flex w-full items-center justify-between gap-2 text-left font-medium disabled:opacity-50"
       >
         <span className={selected ? 'text-[var(--text)]' : 'text-[var(--muted)]'}>{label}</span>
         <ChevronDown size={16} className="shrink-0 text-[var(--muted)]" aria-hidden />

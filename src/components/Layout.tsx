@@ -98,7 +98,7 @@ export function Layout() {
                 to={to}
                 end={to === '/'}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                  `press-pop flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
                     isActive
                       ? 'bg-[var(--green)]/15 text-[var(--green)]'
                       : 'text-[var(--muted)] hover:bg-[var(--card)] hover:text-[var(--text)]'
@@ -112,7 +112,7 @@ export function Layout() {
           </nav>
           <button
             type="button"
-            className="mt-4 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[var(--muted)] transition hover:bg-[var(--card)] hover:text-[var(--text)]"
+            className="press-pop mt-4 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[var(--muted)] transition hover:bg-[var(--card)] hover:text-[var(--text)]"
             onClick={() => void cloud.lockNow()}
           >
             <LogOut size={18} aria-hidden />
@@ -138,7 +138,7 @@ export function Layout() {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
+                `press-pop flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
                   isActive ? 'text-[var(--green)]' : 'text-[var(--muted)]'
                 }`
               }
@@ -149,7 +149,7 @@ export function Layout() {
           ))}
           <button
             type="button"
-            className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
+            className={`press-pop flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
               moreOpen || moreActive ? 'text-[var(--green)]' : 'text-[var(--muted)]'
             }`}
             onClick={() => setMoreOpen((v) => !v)}
@@ -188,7 +188,7 @@ export function Layout() {
                   key={to}
                   to={to}
                   className={({ isActive }) =>
-                    `flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold ${
+                    `press-pop flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold ${
                       isActive ? 'text-[var(--green)]' : 'text-[var(--text)]'
                     }`
                   }
@@ -199,7 +199,7 @@ export function Layout() {
               ))}
               <button
                 type="button"
-                className="flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold text-[var(--text)]"
+                className="press-pop flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold text-[var(--text)]"
                 onClick={() => void cloud.lockNow()}
               >
                 <LogOut size={20} aria-hidden />
