@@ -44,7 +44,6 @@ import {
   type ActiveGoal,
   type Business,
 } from '../types'
-import { newId } from '../lib/storage'
 import { defaultPrintxLogoUrl } from '../lib/businessLogo'
 import { LogoUploadPaste } from '../components/LogoUploadPaste'
 import { BusinessLogo } from '../components/BusinessLogo'

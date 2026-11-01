@@ -34,15 +34,6 @@ export function resolveBusinessLogoUrl(b: {
   return null
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('Could not read file'))
-    reader.readAsDataURL(file)
-  })
-}
-
 async function compressRaster(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file)
   const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
