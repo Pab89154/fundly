@@ -85,7 +85,7 @@ export function Layout() {
           </p>
         </aside>
 
-        <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-6 lg:pb-8 lg:pt-8">
+        <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+2.75rem)] sm:px-6 lg:pb-8 lg:pt-8">
           <Outlet />
         </main>
       </div>
