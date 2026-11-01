@@ -30,7 +30,12 @@ export function loadState(): AppState {
         printxLastResolvedCents: Number(parsed.settings.printxLastResolvedCents) || 0,
         printxLastResolvedAt: parsed.settings.printxLastResolvedAt ?? null,
         printxResolveUndo: parsed.settings.printxResolveUndo ?? null,
+        printxIgnoredEventIds: Array.isArray(parsed.settings.printxIgnoredEventIds)
+          ? parsed.settings.printxIgnoredEventIds
+          : [],
+        printxAutoSettleV2: Boolean(parsed.settings.printxAutoSettleV2),
       },
+
       transactions: parsed.transactions,
     }
   } catch {

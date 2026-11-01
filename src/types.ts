@@ -77,12 +77,15 @@ export interface Settings {
   celebratedMilestones: number[]
   /** Last PrintX "Owed to me" amount synced (cents). */
   printxOpenOwedCents: number
-  /** How much of that open window was already Mark resolved in Fundly (cents). */
+  /**
+   * @deprecated Manual Fundly resolve credit — open is now PrintX openOwed only.
+   * Kept so old cloud saves still load.
+   */
   printxOpenResolvedCents: number
-  /** Last Resolve button amount (cents) — for the Resolved card. */
+  /** Last settlement amount imported into pots (cents). */
   printxLastResolvedCents: number
   printxLastResolvedAt: string | null
-  /** Snapshot so Mark resolved can be undone once. */
+  /** Snapshot so the last PrintX settlement import can be undone once. */
   printxResolveUndo: {
     at: string
     prevOpenResolvedCents: number
@@ -91,6 +94,10 @@ export interface Settings {
     resolveExternalId: string | null
     reSettledTxIds: string[]
   } | null
+  /** Settle event ids undone in Fundly — Sync will not re-import them. */
+  printxIgnoredEventIds: string[]
+  /** Migration: strip manual printx-resolve txs; pots come from PrintX settle:* only. */
+  printxAutoSettleV2?: boolean
 }
 
 export interface AppState {
@@ -144,6 +151,8 @@ export const DEFAULT_SETTINGS: Settings = {
   printxLastResolvedCents: 0,
   printxLastResolvedAt: null,
   printxResolveUndo: null,
+  printxIgnoredEventIds: [],
+  printxAutoSettleV2: true,
 }
 
 /** Normalize legacy goalCents-only saves into activeGoal. */

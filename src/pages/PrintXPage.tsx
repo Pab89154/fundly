@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ExternalLink, RefreshCw, Store, Undo2 } from 'lucide-react'
+import { ExternalLink, RefreshCw, Store, Undo2 } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -14,7 +14,6 @@ import { apiUrl } from '../lib/apiBase'
 import { formatUsd, fromCents } from '../lib/money'
 import {
   printxEarningsCents,
-  printxUnsettledCents,
   startOfMonth,
   startOfWeek,
 } from '../lib/balances'
@@ -30,7 +29,6 @@ export function PrintXPage() {
     state,
     importPrintxEvents,
     setPrintxOpenOwed,
-    resolvePrintxNow,
     undoResolvePrintx,
     canUndoResolvePrintx,
     printxOpenRemainingCents,
@@ -52,7 +50,6 @@ export function PrintXPage() {
   const life = printxEarningsCents(state.transactions)
   const stripe = printxEarningsCents(state.transactions, { printxSource: 'stripe' })
   const cash = printxEarningsCents(state.transactions, { printxSource: 'cash' })
-  const waitingLeftover = printxUnsettledCents(state.transactions)
   const lastResolved = Number(state.settings.printxLastResolvedCents) || 0
 
   const weeklyChart = useMemo(() => {
@@ -93,11 +90,12 @@ export function PrintXPage() {
     setErr('')
     setMsg('')
     try {
+      // Always pull the full settle:* feed so missing pot imports can repair.
       const res = await fetch(apiUrl('/api/printx/sync'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ since: state.settings.syncCursor || undefined }),
+        body: JSON.stringify({}),
       })
       const data = (await res.json()) as {
         error?: string
@@ -110,12 +108,18 @@ export function PrintXPage() {
         setStatus({ configured: Boolean(data.configured) })
         return
       }
-      importPrintxEvents(data.events || [])
+      const result = importPrintxEvents(data.events || [])
       if (typeof data.openOwedUsd === 'number') {
         setPrintxOpenOwed(data.openOwedUsd)
-        setMsg(`Synced · open on PrintX $${data.openOwedUsd.toFixed(2)}`)
+      }
+      const openLabel =
+        typeof data.openOwedUsd === 'number' ? ` · open $${data.openOwedUsd.toFixed(2)}` : ''
+      if (result.imported > 0) {
+        setMsg(
+          `Synced ${result.imported} PrintX settlement${result.imported === 1 ? '' : 's'} into your pots${openLabel}`,
+        )
       } else {
-        setMsg('Synced')
+        setMsg(`Synced — already up to date${openLabel}`)
       }
       setStatus({ configured: true })
     } catch (e) {
@@ -125,21 +129,6 @@ export function PrintXPage() {
     }
   }
 
-  const onResolve = () => {
-    setErr('')
-    const res = resolvePrintxNow()
-    if (!res.ok) {
-      setErr(res.error)
-      return
-    }
-    const openPart = formatUsd(res.openCents)
-    setMsg(
-      res.waitingCents > 0
-        ? `Resolved ${openPart} into your pots (also cleared ${formatUsd(res.waitingCents)} leftover). Open is $0.`
-        : `Resolved ${openPart} into your pots. Open is $0. You can Undo if that was a mistake.`,
-    )
-  }
-
   const onUndoResolve = () => {
     setErr('')
     const res = undoResolvePrintx()
@@ -147,7 +136,7 @@ export function PrintXPage() {
       setErr(res.error)
       return
     }
-    setMsg('Undid Mark resolved — open is back.')
+    setMsg(`Undid last settlement · ${formatUsd(res.undoneCents)} removed from pots.`)
   }
 
   useEffect(() => {
@@ -158,8 +147,6 @@ export function PrintXPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.configured, state.settings.onboardingComplete])
 
-  const canResolve = printxOpenRemainingCents > 0 || waitingLeftover > 0
-
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -169,7 +156,7 @@ export function PrintXPage() {
             PrintX
           </h2>
           <p className="mt-2 flex flex-wrap items-center gap-1 text-[var(--muted)]">
-            Sync the open balance, then Mark resolved anytime to put it in your pots ·{' '}
+            Mark settled on PrintX Money, then Sync — Fundly pulls it into your pots ·{' '}
             <a
               className="inline-flex items-center gap-1 text-[var(--blue)] underline"
               href="https://printx.pw/money"
@@ -182,19 +169,9 @@ export function PrintXPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn btn-secondary" onClick={sync} disabled={syncing}>
+          <button type="button" className="btn btn-primary" onClick={sync} disabled={syncing}>
             <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} aria-hidden />
             {syncing ? 'Syncing...' : 'Sync'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={onResolve}
-            disabled={!canResolve}
-          >
-            <CheckCircle2 size={16} aria-hidden />
-            Mark resolved
-            {printxOpenRemainingCents > 0 ? ` · ${formatUsd(printxOpenRemainingCents)}` : ''}
           </button>
           <button
             type="button"
@@ -203,10 +180,13 @@ export function PrintXPage() {
             disabled={!canUndoResolvePrintx}
           >
             <Undo2 size={16} aria-hidden />
-            Undo resolve
+            Undo last settlement
           </button>
         </div>
       </header>
+
+      {msg ? <p className="text-sm font-semibold text-[var(--green)]">{msg}</p> : null}
+      {err ? <p className="text-sm font-semibold text-[var(--danger)]">{err}</p> : null}
 
       <div className="card flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
         <div>
@@ -231,28 +211,28 @@ export function PrintXPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <div className="card p-5">
-          <p className="text-xs font-semibold uppercase text-[var(--muted)]">Open</p>
+          <p className="text-xs font-semibold uppercase text-[var(--muted)]">Open on PrintX</p>
           <p className="mt-2 text-2xl font-extrabold text-[var(--orange)]">
             {formatUsd(printxOpenRemainingCents)}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Owed on PrintX — press Mark resolved to put it in pots and reset to $0
+            Still owed on printx.pw/money — Mark settled there, then Sync
           </p>
         </div>
         <div className="card p-5">
-          <p className="text-xs font-semibold uppercase text-[var(--muted)]">Last resolved</p>
+          <p className="text-xs font-semibold uppercase text-[var(--muted)]">Last settlement</p>
           <p className="mt-2 text-2xl font-extrabold text-[var(--green)]">
             {formatUsd(lastResolved)}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
             {state.settings.printxLastResolvedAt
-              ? `Resolved ${new Date(state.settings.printxLastResolvedAt).toLocaleString()}`
-              : 'Nothing resolved yet'}
+              ? `Imported ${new Date(state.settings.printxLastResolvedAt).toLocaleString()}`
+              : 'Nothing imported yet'}
           </p>
           {canUndoResolvePrintx ? (
             <button type="button" className="btn btn-secondary mt-3 w-full" onClick={onUndoResolve}>
               <Undo2 size={16} aria-hidden />
-              Undo mark resolved
+              Undo last settlement
             </button>
           ) : null}
         </div>
@@ -277,54 +257,45 @@ export function PrintXPage() {
         </div>
       </div>
 
-      <div className="card p-5">
-        <h3 className="font-bold">Weekly earnings</h3>
-        <div className="mt-4 h-64">
-          {weeklyChart.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">No resolved PrintX earnings yet.</p>
-          ) : (
+      {weeklyChart.length > 0 ? (
+        <div className="card p-5">
+          <h3 className="font-bold">Weekly PrintX (in pots)</h3>
+          <div className="mt-4 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weeklyChart}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="week" stroke="var(--muted)" fontSize={12} />
-                <YAxis stroke="var(--muted)" fontSize={12} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'var(--card)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 12,
-                  }}
-                />
-                <Bar dataKey="usd" fill="#30D158" radius={[6, 6, 0, 0]} />
+                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                <XAxis dataKey="week" />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="usd" fill="var(--green)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          )}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="card p-5">
-        <h3 className="font-bold">PrintX transactions</h3>
-        <ul className="mt-3 divide-y divide-[var(--border)]">
-          {imported.length === 0 ? (
-            <li className="py-3 text-sm text-[var(--muted)]">None yet</li>
-          ) : (
-            imported.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 py-3 text-sm">
+      <section className="card p-5">
+        <h3 className="font-bold">Recent PrintX</h3>
+        {imported.length === 0 ? (
+          <p className="mt-3 text-sm text-[var(--muted)]">
+            No PrintX settlements in Fundly yet. Mark settled on PrintX, then Sync.
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y divide-[var(--border)]">
+            {imported.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
                 <div>
-                  <p className="font-semibold">{t.description || t.type}</p>
+                  <p className="font-semibold">{t.description || 'PrintX'}</p>
                   <p className="text-[var(--muted)]">
-                    {t.date} · {t.settledAt === null ? 'leftover' : 'in pots'}
+                    {t.date} · {t.settledAt === null ? 'waiting' : 'in pots'}
                   </p>
                 </div>
-                <p className="font-bold">{formatUsd(t.amountCents)}</p>
+                <p className="font-extrabold">{formatUsd(t.amountCents)}</p>
               </li>
-            ))
-          )}
-        </ul>
-      </div>
-
-      {err ? <p className="text-sm text-[var(--danger)]">{err}</p> : null}
-      {msg ? <p className="text-sm text-[var(--green)]">{msg}</p> : null}
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   )
 }

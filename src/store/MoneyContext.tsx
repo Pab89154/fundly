@@ -36,6 +36,46 @@ import {
   type Transaction,
 } from '../types'
 
+function isPrintxSettleEventId(id: string | undefined | null): boolean {
+  return Boolean(id && String(id).startsWith('settle:'))
+}
+
+function isLegacyPrintxResolveTx(tx: Transaction): boolean {
+  return (
+    Boolean(tx.tags?.includes('resolve')) &&
+    String(tx.externalId || '').startsWith('printx-resolve:')
+  )
+}
+
+function isUndoablePrintxPayout(tx: Transaction): boolean {
+  return isLegacyPrintxResolveTx(tx) || isPrintxSettleEventId(tx.externalId)
+}
+
+/** One-time: remove manual Fundly "Mark resolved" txs — pots come from PrintX settle:* only. */
+function stripLegacyPrintxResolves(state: AppState): AppState {
+  if (state.settings.printxAutoSettleV2) return state
+  const hadLegacy = state.transactions.some(isLegacyPrintxResolveTx)
+  const txs = state.transactions.filter((tx) => !isLegacyPrintxResolveTx(tx))
+  const lastSettle = [...txs]
+    .filter((tx) => isPrintxSettleEventId(tx.externalId))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+  return {
+    ...state,
+    transactions: txs,
+    settings: {
+      ...state.settings,
+      printxAutoSettleV2: true,
+      printxOpenResolvedCents: 0,
+      printxResolveUndo: null,
+      printxLastResolvedCents: lastSettle?.amountCents ?? (hadLegacy ? 0 : state.settings.printxLastResolvedCents),
+      printxLastResolvedAt: lastSettle?.settledAt ?? lastSettle?.createdAt ?? (hadLegacy ? null : state.settings.printxLastResolvedAt),
+      printxIgnoredEventIds: Array.isArray(state.settings.printxIgnoredEventIds)
+        ? state.settings.printxIgnoredEventIds
+        : [],
+    },
+  }
+}
+
 type AddIncomeInput = {
   amountUsd: number
   source: IncomeSource
@@ -107,16 +147,16 @@ type MoneyContextValue = {
   /** Update open "Owed to me" from PrintX sync. */
   setPrintxOpenOwed: (openOwedUsd: number) => void
   /**
-   * Mark resolved: put open PrintX money (and any waiting leftovers) into pots.
-   * Open goes to $0 until new earnings appear.
+   * @deprecated Manual resolve removed — Sync imports PrintX settlements.
+   * Kept as a no-op for older UI builds.
    */
   resolvePrintxNow: () =>
     | { ok: true; resolvedCents: number; openCents: number; waitingCents: number }
     | { ok: false; error: string }
-  /** Undo the last Mark resolved (puts open back). */
-  undoResolvePrintx: () => { ok: true } | { ok: false; error: string }
+  /** Undo the last PrintX settlement import (or legacy Mark resolved). */
+  undoResolvePrintx: () => { ok: true; undoneCents: number } | { ok: false; error: string }
   canUndoResolvePrintx: boolean
-  /** Open amount still to resolve (PrintX owed minus already resolved here). */
+  /** Open "Owed to me" from PrintX (not yet Mark settled there). */
   printxOpenRemainingCents: number
   /** Import past funds from a parsed transaction statement. */
   importStatementRows: (
@@ -150,7 +190,7 @@ export function MoneyProvider({
   children: ReactNode
   cloudEnabled?: boolean
 }) {
-  const [state, setState] = useState<AppState>(() => loadState())
+  const [state, setState] = useState<AppState>(() => stripLegacyPrintxResolves(loadState()))
   const [celebration, setCelebration] = useState<number | null>(null)
   const [cloudReady, setCloudReady] = useState(!cloudEnabled)
   const [cloudEmpty, setCloudEmpty] = useState(false)
@@ -203,10 +243,14 @@ export function MoneyProvider({
             printxLastResolvedCents: Number(remote.state.settings.printxLastResolvedCents) || 0,
             printxLastResolvedAt: remote.state.settings.printxLastResolvedAt ?? null,
             printxResolveUndo: remote.state.settings.printxResolveUndo ?? null,
+            printxIgnoredEventIds: Array.isArray(remote.state.settings.printxIgnoredEventIds)
+              ? (remote.state.settings.printxIgnoredEventIds as string[])
+              : [],
+            printxAutoSettleV2: Boolean(remote.state.settings.printxAutoSettleV2),
           },
         }
-        setState(next)
-        saveState(next)
+        setState(stripLegacyPrintxResolves(next))
+        saveState(stripLegacyPrintxResolves(next))
       }
       setCloudReady(true)
       setCloudHydrated(true)
@@ -222,17 +266,9 @@ export function MoneyProvider({
   }, [state.settings.theme])
 
   const balances = useMemo(() => computeBalances(state.transactions), [state.transactions])
-  const printxOpenRemainingCents = Math.max(
-    0,
-    (Number(state.settings.printxOpenOwedCents) || 0) -
-      (Number(state.settings.printxOpenResolvedCents) || 0),
-  )
-  const canUndoResolvePrintx =
-    Boolean(state.settings.printxResolveUndo) ||
-    state.transactions.some(
-      (t) =>
-        t.tags?.includes('resolve') && String(t.externalId || '').startsWith('printx-resolve:'),
-    )
+  /** Open on PrintX Money — Sync updates this; Mark settled on PrintX lowers it. */
+  const printxOpenRemainingCents = Math.max(0, Number(state.settings.printxOpenOwedCents) || 0)
+  const canUndoResolvePrintx = state.transactions.some(isUndoablePrintxPayout)
 
   const pushTx = useCallback((tx: Transaction, celebrateFrom?: number) => {
     setState((prev) => {
@@ -538,210 +574,199 @@ export function MoneyProvider({
     [],
   )
 
-  const importPrintxEvents = useCallback(
-    (events: PrintxFeedEvent[]) => {
-      // Money enters pots via Mark resolved on the Open amount — not leftover "waiting" imports.
-      let skipped = 0
-      setState((prev) => {
-        const ids = [...prev.settings.importedEventIds]
-        const known = new Set(ids)
-        let cursor = prev.settings.syncCursor
-        for (const ev of events) {
+  const importPrintxEvents = useCallback((events: PrintxFeedEvent[]) => {
+    let imported = 0
+    let skipped = 0
+    const newMilestoneCents: number[] = []
+
+    setState((prev) => {
+      const base = stripLegacyPrintxResolves(prev)
+      const ignored = new Set(base.settings.printxIgnoredEventIds || [])
+      const byExternal = new Set(
+        base.transactions.map((t) => t.externalId).filter(Boolean) as string[],
+      )
+      const ids = [...base.settings.importedEventIds]
+      const knownIds = new Set(ids)
+      let cursor = base.settings.syncCursor
+      let txs = [...base.transactions]
+      let lastResolvedCents = Number(base.settings.printxLastResolvedCents) || 0
+      let lastResolvedAt = base.settings.printxLastResolvedAt
+      let undo = base.settings.printxResolveUndo
+      const iphoneBefore = computeBalances(base.transactions).iphone
+      const celebrated = [...base.settings.celebratedMilestones]
+
+      for (const ev of events) {
+        if (!ev.eventId) {
           skipped += 1
-          if (!ev.eventId) continue
-          if (!known.has(ev.eventId)) {
-            known.add(ev.eventId)
+          continue
+        }
+        if (ev.occurredAt && (!cursor || ev.occurredAt > cursor)) cursor = ev.occurredAt
+        if (!isPrintxSettleEventId(ev.eventId)) {
+          skipped += 1
+          continue
+        }
+        if (ignored.has(ev.eventId) || byExternal.has(ev.eventId)) {
+          if (!knownIds.has(ev.eventId)) {
+            knownIds.add(ev.eventId)
             ids.push(ev.eventId)
           }
-          if (ev.occurredAt && (!cursor || ev.occurredAt > cursor)) cursor = ev.occurredAt
+          skipped += 1
+          continue
         }
-        return {
-          ...prev,
-          settings: {
-            ...prev.settings,
-            importedEventIds: ids,
-            syncCursor: cursor,
-            lastSyncedAt: new Date().toISOString(),
-          },
-        }
-      })
-      return { imported: 0, skipped, newMilestoneCents: [] as number[] }
-    },
-    [],
-  )
 
-  const setPrintxOpenOwed = useCallback((openOwedUsd: number) => {
-    const nextOpen = Math.max(0, toCents(openOwedUsd))
-    setState((prev) => {
-      const prevOpen = Number(prev.settings.printxOpenOwedCents) || 0
-      let resolved = Number(prev.settings.printxOpenResolvedCents) || 0
-      // If PrintX open dropped (settled there), shrink our resolved credit with it.
-      if (nextOpen < prevOpen) {
-        resolved = Math.max(0, resolved - (prevOpen - nextOpen))
+        const amountCents = toCents(Math.abs(Number(ev.amountNetUsd) || 0))
+        if (amountCents <= 0) {
+          skipped += 1
+          continue
+        }
+
+        const occurred = ev.occurredAt || new Date().toISOString()
+        const allocation = allocateCents(amountCents, base.settings.allocation)
+        const isRefund = ev.kind === 'refund' || ev.kind === 'reversal'
+        const tx: Transaction = {
+          id: newId(),
+          type: isRefund ? 'refund' : 'income',
+          amountCents,
+          date: occurred.slice(0, 10),
+          description: ev.description || `PrintX settled · ${formatUsd(amountCents)}`,
+          source: 'printx',
+          printxSource: ev.source === 'stripe' ? 'stripe' : 'cash',
+          allocation: isRefund
+            ? {
+                iphone: -allocation.iphone,
+                spending: -allocation.spending,
+                extra: -allocation.extra,
+                charity: -allocation.charity,
+              }
+            : allocation,
+          externalId: ev.eventId,
+          settledAt: occurred,
+          tags: ['printx', 'settle', isRefund ? 'refund' : 'earned'],
+          createdAt: new Date().toISOString(),
+        }
+        txs.push(tx)
+        byExternal.add(ev.eventId)
+        if (!knownIds.has(ev.eventId)) {
+          knownIds.add(ev.eventId)
+          ids.push(ev.eventId)
+        }
+        imported += 1
+        if (!isRefund) {
+          lastResolvedCents = amountCents
+          lastResolvedAt = occurred
+          undo = {
+            at: occurred,
+            prevOpenResolvedCents: 0,
+            prevLastResolvedCents: Number(base.settings.printxLastResolvedCents) || 0,
+            prevLastResolvedAt: base.settings.printxLastResolvedAt ?? null,
+            resolveExternalId: ev.eventId,
+            reSettledTxIds: [],
+          }
+        }
       }
-      // Never keep resolved above current open.
-      resolved = Math.min(resolved, nextOpen)
+
+      if (imported > 0) {
+        const iphoneAfter = computeBalances(txs).iphone
+        const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(base.settings)).filter(
+          (m) => !celebrated.includes(m),
+        )
+        for (const m of crossed) {
+          celebrated.push(m)
+          newMilestoneCents.push(m)
+        }
+        if (crossed.length) {
+          queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
+        }
+      }
+
       return {
-        ...prev,
+        ...base,
+        transactions: txs,
         settings: {
-          ...prev.settings,
-          printxOpenOwedCents: nextOpen,
-          printxOpenResolvedCents: resolved,
+          ...base.settings,
+          importedEventIds: ids,
+          syncCursor: cursor,
           lastSyncedAt: new Date().toISOString(),
+          printxOpenResolvedCents: 0,
+          printxLastResolvedCents: lastResolvedCents,
+          printxLastResolvedAt: lastResolvedAt,
+          printxResolveUndo: undo,
+          celebratedMilestones: celebrated,
+          printxAutoSettleV2: true,
         },
       }
     })
+
+    return { imported, skipped, newMilestoneCents }
+  }, [])
+
+  const setPrintxOpenOwed = useCallback((openOwedUsd: number) => {
+    const nextOpen = Math.max(0, toCents(openOwedUsd))
+    setState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        printxOpenOwedCents: nextOpen,
+        printxOpenResolvedCents: 0,
+        lastSyncedAt: new Date().toISOString(),
+      },
+    }))
   }, [])
 
   const resolvePrintxNow = useCallback(() => {
-    let resolvedCents = 0
-    let openCents = 0
-    let waitingCents = 0
+    return {
+      ok: false as const,
+      error: 'Mark resolved in Fundly is gone — Mark settled on PrintX, then Sync here.',
+    }
+  }, [])
+
+  const undoResolvePrintx = useCallback(() => {
+    let undoneCents = 0
     let error: string | null = null
 
     setState((prev) => {
-      const openOwed = Number(prev.settings.printxOpenOwedCents) || 0
-      const already = Number(prev.settings.printxOpenResolvedCents) || 0
-      openCents = Math.max(0, openOwed - already)
+      const last = [...prev.transactions]
+        .filter(isUndoablePrintxPayout)
+        .sort((a, b) => {
+          const at = (t: Transaction) => t.settledAt || t.createdAt || t.date
+          return at(b).localeCompare(at(a))
+        })[0]
 
-      const pending = prev.transactions.filter((tx) => tx.settledAt === null)
-      waitingCents = pending.reduce((s, t) => s + Math.abs(t.amountCents), 0)
-
-      if (openCents <= 0 && pending.length === 0) {
-        error = 'Nothing to resolve — open is already $0.'
+      if (!last) {
+        error = 'Nothing to undo.'
         return prev
       }
 
-      const now = new Date().toISOString()
-      const resolveExternalId = openCents > 0 ? `printx-resolve:${now}` : null
-      const reSettledTxIds = pending.map((t) => t.id)
-      const iphoneBefore = computeBalances(prev.transactions).iphone
-      let txs = prev.transactions.map((tx) => {
-        if (tx.settledAt !== null) return tx
-        return {
-          ...tx,
-          settledAt: now,
-          tags: [...(tx.tags || []).filter((t) => t !== 'unsettled'), 'settled'],
-          updatedAt: now,
-        }
-      })
-
-      if (openCents > 0 && resolveExternalId) {
-        const allocation = allocateCents(openCents, prev.settings.allocation)
-        txs = [
-          ...txs,
-          {
-            id: newId(),
-            type: 'income',
-            amountCents: openCents,
-            date: now.slice(0, 10),
-            description: `PrintX resolved · ${formatUsd(openCents)}`,
-            source: 'printx',
-            printxSource: 'cash',
-            allocation,
-            externalId: resolveExternalId,
-            settledAt: now,
-            tags: ['printx', 'resolve'],
-            createdAt: now,
-          },
-        ]
+      undoneCents = Math.abs(last.amountCents)
+      const ignored = [...(prev.settings.printxIgnoredEventIds || [])]
+      if (isPrintxSettleEventId(last.externalId) && last.externalId && !ignored.includes(last.externalId)) {
+        ignored.push(last.externalId)
       }
 
-      resolvedCents = openCents + waitingCents
-      const iphoneAfter = computeBalances(txs).iphone
-      const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(prev.settings)).filter(
-        (m) => !prev.settings.celebratedMilestones.includes(m),
-      )
-      if (crossed.length) {
-        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
-      }
+      const txs = prev.transactions.filter((t) => t.id !== last.id)
+      const nextLast = [...txs]
+        .filter(isUndoablePrintxPayout)
+        .sort((a, b) => (b.settledAt || b.createdAt).localeCompare(a.settledAt || a.createdAt))[0]
 
       return {
         ...prev,
         transactions: txs,
         settings: {
           ...prev.settings,
-          printxOpenResolvedCents: openOwed,
-          printxLastResolvedCents: openCents > 0 ? openCents : waitingCents,
-          printxLastResolvedAt: now,
-          printxResolveUndo: {
-            at: now,
-            prevOpenResolvedCents: already,
-            prevLastResolvedCents: Number(prev.settings.printxLastResolvedCents) || 0,
-            prevLastResolvedAt: prev.settings.printxLastResolvedAt ?? null,
-            resolveExternalId,
-            reSettledTxIds,
-          },
-          celebratedMilestones: [...prev.settings.celebratedMilestones, ...crossed],
-        },
-      }
-    })
-
-    if (error) return { ok: false as const, error }
-    return { ok: true as const, resolvedCents, openCents, waitingCents }
-  }, [])
-
-  const undoResolvePrintx = useCallback(() => {
-    let error: string | null = null
-    setState((prev) => {
-      const undo = prev.settings.printxResolveUndo
-      if (undo) {
-        const reSet = new Set(undo.reSettledTxIds)
-        const txs = prev.transactions
-          .filter((tx) => tx.externalId !== undo.resolveExternalId)
-          .map((tx) => {
-            if (!reSet.has(tx.id)) return tx
-            if (tx.settledAt !== undo.at) return tx
-            return {
-              ...tx,
-              settledAt: null,
-              tags: [...(tx.tags || []).filter((t) => t !== 'settled'), 'unsettled'],
-              updatedAt: new Date().toISOString(),
-            }
-          })
-        return {
-          ...prev,
-          transactions: txs,
-          settings: {
-            ...prev.settings,
-            printxOpenResolvedCents: undo.prevOpenResolvedCents,
-            printxLastResolvedCents: undo.prevLastResolvedCents,
-            printxLastResolvedAt: undo.prevLastResolvedAt,
-            printxResolveUndo: null,
-          },
-        }
-      }
-
-      // Fallback if resolve happened before undo snapshots existed.
-      const resolveTx = [...prev.transactions]
-        .filter(
-          (t) =>
-            t.tags?.includes('resolve') &&
-            String(t.externalId || '').startsWith('printx-resolve:'),
-        )
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-      if (!resolveTx) {
-        error = 'Nothing to undo.'
-        return prev
-      }
-      const openOwed = Number(prev.settings.printxOpenOwedCents) || 0
-      const resolved = Number(prev.settings.printxOpenResolvedCents) || 0
-      return {
-        ...prev,
-        transactions: prev.transactions.filter((t) => t.id !== resolveTx.id),
-        settings: {
-          ...prev.settings,
-          printxOpenResolvedCents: Math.max(0, resolved - resolveTx.amountCents),
-          printxLastResolvedCents: 0,
-          printxLastResolvedAt: null,
+          printxOpenResolvedCents: 0,
+          printxLastResolvedCents: nextLast ? Math.abs(nextLast.amountCents) : 0,
+          printxLastResolvedAt: nextLast ? nextLast.settledAt || nextLast.createdAt : null,
           printxResolveUndo: null,
-          // keep openOwed unchanged so Open shows again
-          printxOpenOwedCents: openOwed,
+          printxIgnoredEventIds: ignored,
+          importedEventIds: last.externalId
+            ? prev.settings.importedEventIds.filter((id) => id !== last.externalId)
+            : prev.settings.importedEventIds,
         },
       }
     })
+
     if (error) return { ok: false as const, error }
-    return { ok: true as const }
+    return { ok: true as const, undoneCents }
   }, [])
 
   const settlePrintxTransaction = useCallback((id: string) => {

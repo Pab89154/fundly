@@ -35,6 +35,8 @@ function emptyState(): AppStateJson {
       printxLastResolvedCents: 0,
       printxLastResolvedAt: null,
       printxResolveUndo: null,
+      printxIgnoredEventIds: [],
+      printxAutoSettleV2: true,
     },
     transactions: [],
   }

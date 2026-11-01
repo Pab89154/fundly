@@ -202,8 +202,8 @@ export function Savings() {
               Waiting to settle
             </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              PrintX money only counts here after you Mark settled — first on PrintX Money, then
-              here when it is really yours.
+              Prefer PrintX → Sync: Mark settled on printx.pw/money and Fundly imports it. Leftover
+              rows below are older imports you can clear here.
             </p>
           </div>
           {pendingPrintx.length > 0 ? (
@@ -226,7 +226,7 @@ export function Savings() {
         </div>
         {pendingPrintx.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">
-            Nothing waiting. Sync PrintX after you Mark settled on printx.pw/money.
+            Nothing waiting. New settlements land via PrintX → Sync.
           </p>
         ) : (
           <ul className="divide-y divide-[var(--border)]">
