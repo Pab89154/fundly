@@ -108,8 +108,10 @@ export function Layout() {
                   }`
                 }
               >
-                {business ? <BusinessLogo business={business} size={18} /> : <Icon size={18} />}
-                {label}
+                <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
+                  {business ? <BusinessLogo business={business} size={18} /> : <Icon size={18} />}
+                </span>
+                <span className="min-w-0 truncate">{label}</span>
               </NavLink>
             ))}
           </nav>
@@ -141,26 +143,30 @@ export function Layout() {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `press-pop flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
+                `press-pop flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight ${
                   isActive ? 'text-[var(--green)]' : 'text-[var(--muted)]'
                 }`
               }
             >
-              {business ? <BusinessLogo business={business} size={18} /> : <Icon size={18} />}
-              <span className="truncate">{label.split(' ')[0]}</span>
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                {business ? <BusinessLogo business={business} size={18} /> : <Icon size={18} />}
+              </span>
+              <span className="max-w-full truncate px-0.5">{label.split(' ')[0]}</span>
             </NavLink>
           ))}
           <button
             type="button"
-            className={`press-pop flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-semibold ${
+            className={`press-pop flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl px-0.5 py-2 text-[10px] font-semibold leading-tight ${
               moreOpen || moreActive ? 'text-[var(--green)]' : 'text-[var(--muted)]'
             }`}
             onClick={() => setMoreOpen((v) => !v)}
             aria-expanded={moreOpen}
             aria-label="More"
           >
-            <MoreHorizontal size={18} aria-hidden />
-            <span>More</span>
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+              <MoreHorizontal size={18} aria-hidden />
+            </span>
+            <span className="max-w-full truncate px-0.5">More</span>
           </button>
         </div>
       </nav>
@@ -191,22 +197,26 @@ export function Layout() {
                   key={to}
                   to={to}
                   className={({ isActive }) =>
-                    `press-pop flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold ${
+                    `press-pop flex min-h-[5.5rem] flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold ${
                       isActive ? 'text-[var(--green)]' : 'text-[var(--text)]'
                     }`
                   }
                 >
-                  {business ? <BusinessLogo business={business} size={20} /> : <Icon size={20} />}
-                  <span>{label}</span>
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+                    {business ? <BusinessLogo business={business} size={22} /> : <Icon size={20} />}
+                  </span>
+                  <span className="line-clamp-2 w-full leading-snug">{label}</span>
                 </NavLink>
               ))}
               <button
                 type="button"
-                className="press-pop flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold text-[var(--text)]"
+                className="press-pop flex min-h-[5.5rem] flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold text-[var(--text)]"
                 onClick={() => void cloud.lockNow()}
               >
-                <LogOut size={20} aria-hidden />
-                <span>Logout</span>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+                  <LogOut size={20} aria-hidden />
+                </span>
+                <span className="line-clamp-2 w-full leading-snug">Logout</span>
               </button>
             </div>
           </div>

@@ -153,12 +153,12 @@ export function PrintXPage() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="flex items-center gap-2 text-3xl font-extrabold tracking-tight">
+          <h2 className="flex items-center gap-3 text-3xl font-extrabold tracking-tight">
             <BusinessLogo
               business={printxBiz ?? { id: 'printx', logoDataUrl: null }}
-              size={32}
+              size={36}
             />
-            {printxBiz?.name || 'PrintX'}
+            <span className="min-w-0 break-words">{printxBiz?.name || 'PrintX'}</span>
           </h2>
           <p className="mt-2 flex flex-wrap items-center gap-1 text-[var(--muted)]">
             {printxBiz?.note?.trim() ||
