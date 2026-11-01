@@ -199,11 +199,11 @@ export function Layout() {
               ))}
               <button
                 type="button"
-                className="flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold text-[var(--muted)]"
+                className="flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--card-2)] px-2 py-3 text-center text-xs font-semibold text-[var(--text)]"
                 onClick={() => void cloud.lockNow()}
               >
                 <LogOut size={20} aria-hidden />
-                <span>Log out</span>
+                <span>Logout</span>
               </button>
             </div>
           </div>
