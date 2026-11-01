@@ -18,6 +18,7 @@ import {
 } from '../lib/money'
 import { printxUnsettledCents } from '../lib/balances'
 import { NativeSelect } from '../components/NativeSelect'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { goalName, goalTargetCents } from '../types'
 
 export function Savings() {
@@ -34,6 +35,7 @@ export function Savings() {
   const [amount, setAmount] = useState('')
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [confirmRebalance, setConfirmRebalance] = useState(false)
 
   const pendingPrintx = useMemo(
     () =>
@@ -139,28 +141,26 @@ export function Savings() {
           Savings
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Four accounts · combined {formatUsd(balances.combined)}
+          Four pots · combined {formatUsd(balances.combined)}. Purchases never drain Goal / Extra /
+          Charity — use Transfer below to move money yourself.
         </p>
         <button
           type="button"
           className="btn btn-secondary mt-3"
           onClick={() => {
             setErr('')
-            const res = rebalanceToAllocation()
-            if (!res.ok) {
-              setErr(res.error)
-              return
-            }
-            const a = state.settings.allocation
-            setMsg(
-              `Pots refreshed to ${a.iphone}/${a.spending}/${a.extra}/${a.charity}.`,
-            )
+            setMsg('')
+            setConfirmRebalance(true)
           }}
         >
-          Refresh pots to {state.settings.allocation.iphone}/
+          Redistribute all pots to {state.settings.allocation.iphone}/
           {state.settings.allocation.spending}/{state.settings.allocation.extra}/
           {state.settings.allocation.charity}
         </button>
+        <p className="mt-2 max-w-xl text-xs text-[var(--muted)]">
+          Redistribute reshuffles your total across every pot to match Settings %. It is not a
+          purchase — confirm before using.
+        </p>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -187,7 +187,7 @@ export function Savings() {
                 <div className="progress-fill" style={{ width: `${pct}%` }} />
               </div>
               <p className="mt-3 text-xs text-[var(--muted)]">
-                {historyByAccount[a.id].length} related transactions
+                {historyByAccount[a.id].length} related rows (includes share of split income)
               </p>
             </div>
           )
@@ -305,8 +305,11 @@ export function Savings() {
       <form className="card space-y-4 p-5" onSubmit={onTransfer}>
         <h3 className="flex items-center gap-2 text-lg font-bold">
           <ArrowRightLeft size={18} aria-hidden />
-          Transfer between categories
+          Transfer between pots
         </h3>
+        <p className="text-sm text-[var(--muted)]">
+          Move money from the pot you select to another — only those two balances change.
+        </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="label">From</label>
@@ -355,6 +358,26 @@ export function Savings() {
           Record transfer
         </button>
       </form>
+
+      <ConfirmDialog
+        open={confirmRebalance}
+        title="Redistribute all pots?"
+        message={`This moves money between Goal, Spending, Extra, and Charity so totals match your ${state.settings.allocation.iphone}/${state.settings.allocation.spending}/${state.settings.allocation.extra}/${state.settings.allocation.charity} split. Combined stays the same. Purchases do not do this.`}
+        confirmLabel="Redistribute"
+        cancelLabel="Cancel"
+        onCancel={() => setConfirmRebalance(false)}
+        onConfirm={() => {
+          setConfirmRebalance(false)
+          setErr('')
+          const res = rebalanceToAllocation()
+          if (!res.ok) {
+            setErr(res.error)
+            return
+          }
+          const a = state.settings.allocation
+          setMsg(`Pots redistributed to ${a.iphone}/${a.spending}/${a.extra}/${a.charity}.`)
+        }}
+      />
     </div>
   )
 }

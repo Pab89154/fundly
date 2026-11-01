@@ -51,15 +51,17 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <header className="animate-in">
-        <p className="flex items-center gap-2 text-sm font-semibold text-[var(--green)]">
-          <CalendarDays size={16} aria-hidden />
-          Week {weekNumber()}
-        </p>
-        <h2 className="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">Dashboard</h2>
-        <p className="mt-2 max-w-2xl text-[var(--muted)]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Dashboard</h2>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--green)]">
+            <CalendarDays size={14} aria-hidden />
+            Week {weekNumber()}
+          </p>
+        </div>
+        <p className="mt-1.5 max-w-2xl text-sm text-[var(--muted)]">
           {active
-            ? `Working toward ${name} while keeping spending, extra, and charity in sync.`
-            : 'Set a goal in Settings to track progress — pots still work without one.'}
+            ? `Working toward ${name}.`
+            : 'Set a goal in Settings to track progress.'}
         </p>
       </header>
 

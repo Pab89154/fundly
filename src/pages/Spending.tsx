@@ -43,7 +43,8 @@ export function Spending() {
           Spending
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Buys only use your Spending Money balance — never Goal or Extra savings.
+          Takes from Spending Money only — Goal, Extra, and Charity never drop when you buy
+          something.
         </p>
       </header>
 

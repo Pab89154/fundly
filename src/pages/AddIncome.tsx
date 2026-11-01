@@ -65,9 +65,13 @@ export function AddIncome() {
           Add Income
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Automatically splits {state.settings.allocation.iphone}/
-          {state.settings.allocation.spending}/{state.settings.allocation.extra}/
-          {state.settings.allocation.charity} across Goal, Spending, Extra, and Charity.
+          Money in splits by your Settings % — example at{' '}
+          {state.settings.allocation.iphone}/{state.settings.allocation.spending}/
+          {state.settings.allocation.extra}/{state.settings.allocation.charity}: $100 → Goal $
+          {((100 * state.settings.allocation.iphone) / 100).toFixed(0)}, Spending $
+          {((100 * state.settings.allocation.spending) / 100).toFixed(0)}, Extra $
+          {((100 * state.settings.allocation.extra) / 100).toFixed(0)}, Charity $
+          {((100 * state.settings.allocation.charity) / 100).toFixed(0)}.
         </p>
       </header>
 

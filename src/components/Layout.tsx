@@ -85,12 +85,12 @@ export function Layout() {
           </p>
         </aside>
 
-        <main className="min-w-0 flex-1 px-4 pb-28 pt-6 sm:px-6 lg:pb-8 lg:pt-8">
+        <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-6 lg:pb-8 lg:pt-8">
           <Outlet />
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--card)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-3xl gap-1 overflow-x-auto px-2 py-2">
           {nav.map(({ to, label, icon: Icon }) => (
             <NavLink

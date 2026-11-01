@@ -103,7 +103,7 @@ export function LockScreen({ onUnlocked }: Props) {
   const canSubmit = Boolean(password) && (!totp || code.length === 6)
 
   return (
-    <div className="app-bg flex min-h-screen items-center justify-center p-6">
+    <div className="app-bg flex min-h-screen items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-md space-y-6 rounded-3xl border border-[var(--border)] bg-[var(--card)] p-8 shadow-xl">
         <div className="flex flex-col items-center text-center">
           <FundlyLogo size={72} useRaster className="mb-4" />

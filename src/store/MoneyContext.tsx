@@ -386,9 +386,13 @@ export function MoneyProvider({
 
   const updateTransaction = useCallback(
     (id: string, patch: Partial<Transaction>) => {
+      let error: string | null = null
       setState((prev) => {
         const idx = prev.transactions.findIndex((t) => t.id === id)
-        if (idx < 0) return prev
+        if (idx < 0) {
+          error = 'Transaction not found.'
+          return prev
+        }
         const current = prev.transactions[idx]!
         const next = { ...current, ...patch, id: current.id, updatedAt: new Date().toISOString() }
 
@@ -404,6 +408,7 @@ export function MoneyProvider({
           const others = prev.transactions.filter((t) => t.id !== id)
           const bal = computeBalances(others)
           if (Math.abs(next.amountCents) > bal.spending) {
+            error = `Not enough spending money. Available: $${fromCents(bal.spending).toFixed(2)}.`
             return prev
           }
         }
@@ -412,6 +417,7 @@ export function MoneyProvider({
         copy[idx] = next
         return { ...prev, transactions: copy }
       })
+      if (error) return { ok: false as const, error }
       return { ok: true as const }
     },
     [],
@@ -1008,21 +1014,6 @@ export function MoneyProvider({
     if (error) return { ok: false as const, error }
     return { ok: true as const, movedCents }
   }, [])
-
-  // One-time: if Charity % is set but the pot is still $0, apply the new split.
-  useEffect(() => {
-    if (!cloudHydrated) return
-    if (state.settings.allocation.charity <= 0) return
-    const bal = computeBalances(state.transactions)
-    if (bal.combined <= 0 || bal.charity !== 0) return
-    if (state.transactions.some((t) => t.tags?.includes('rebalance'))) return
-    rebalanceToAllocation()
-  }, [
-    cloudHydrated,
-    rebalanceToAllocation,
-    state.settings.allocation.charity,
-    state.transactions,
-  ])
 
   const resetAllData = useCallback(() => {
     clearState()
