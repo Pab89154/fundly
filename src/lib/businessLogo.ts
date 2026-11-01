@@ -8,11 +8,20 @@ export function isLogoDataUrl(s: string | null | undefined): s is string {
   return Boolean(s && s.startsWith('data:image/'))
 }
 
-/** Default PrintX mark when no custom logo is set. */
-export function defaultPrintxLogoUrl(): string {
+function publicAsset(name: string): string {
   const base = import.meta.env.BASE_URL || '/'
   const root = base.endsWith('/') ? base : `${base}/`
-  return `${root}printx-logo.svg`
+  return `${root}${name}`
+}
+
+/** Default PrintX mark when no custom logo is set. */
+export function defaultPrintxLogoUrl(): string {
+  return publicAsset('printx-logo.svg')
+}
+
+/** Default NFC Bracelets mark (Fundly-styled cast/signal icon). */
+export function defaultNfcLogoUrl(): string {
+  return publicAsset('nfc-logo.svg')
 }
 
 export function resolveBusinessLogoUrl(b: {
@@ -21,6 +30,7 @@ export function resolveBusinessLogoUrl(b: {
 }): string | null {
   if (isLogoDataUrl(b.logoDataUrl)) return b.logoDataUrl
   if (b.id === 'printx') return defaultPrintxLogoUrl()
+  if (b.id === 'nfc_bracelets' || b.id === 'nfc') return defaultNfcLogoUrl()
   return null
 }
 

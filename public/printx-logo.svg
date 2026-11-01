@@ -1,12 +1,67 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PrintX">
-  <!-- Full-bleed navy (no black corners) -->
-  <rect width="512" height="512" fill="#0B1220"/>
-  <!-- Bold rounded X -->
-  <g fill="#FFFFFF">
-    <rect x="118" y="236" width="276" height="40" rx="20" transform="rotate(45 256 256)"/>
-    <rect x="118" y="236" width="276" height="40" rx="20" transform="rotate(-45 256 256)"/>
+  <defs>
+    <radialGradient id="fundlyGreen" cx="12%" cy="0%" r="72%">
+      <stop offset="0%" stop-color="#30d158" stop-opacity="0.28"/>
+      <stop offset="55%" stop-color="#30d158" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="fundlyBlue" cx="100%" cy="8%" r="65%">
+      <stop offset="0%" stop-color="#64d2ff" stop-opacity="0.22"/>
+      <stop offset="50%" stop-color="#64d2ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Fundly charcoal + glows, rounded like Fundly mark -->
+  <rect width="512" height="512" rx="112" fill="#101114"/>
+  <rect width="512" height="512" rx="112" fill="url(#fundlyGreen)"/>
+  <rect width="512" height="512" rx="112" fill="url(#fundlyBlue)"/>
+
+  <!-- White 3D printer + filament + isometric cube -->
+  <g fill="#F4F5F7" stroke="#F4F5F7" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Gantry rail -->
+    <rect x="118" y="96" width="276" height="36" rx="18"/>
+    <!-- Extruder body -->
+    <rect x="224" y="124" width="64" height="52" rx="10"/>
+    <!-- Nozzle tip -->
+    <path d="M236 176 H276 L268 204 H244 Z"/>
+
+    <!-- Filament S-curve -->
+    <path
+      d="M256 204
+         C256 236, 214 248, 214 282
+         C214 316, 256 322, 256 352"
+      fill="none"
+      stroke-width="28"
+    />
+
+    <!-- Isometric cube (wireframe) -->
+    <!-- Top face -->
+    <path
+      d="M256 348
+         L318 378
+         L256 408
+         L194 378
+         Z"
+      fill="none"
+      stroke-width="22"
+    />
+    <!-- Left face -->
+    <path
+      d="M194 378
+         L194 438
+         L256 468
+         L256 408
+         Z"
+      fill="none"
+      stroke-width="22"
+    />
+    <!-- Right face -->
+    <path
+      d="M318 378
+         L318 438
+         L256 468
+         L256 408
+         Z"
+      fill="none"
+      stroke-width="22"
+    />
   </g>
-  <!-- Center equals bars — light blue on top, dark blue on bottom (swapped) -->
-  <rect x="210" y="230" width="92" height="20" rx="5" fill="#2563EB"/>
-  <rect x="210" y="262" width="92" height="20" rx="5" fill="#12B5D4"/>
 </svg>
