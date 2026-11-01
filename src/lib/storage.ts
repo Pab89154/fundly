@@ -2,10 +2,24 @@ import { normalizeAllocationPct } from './money'
 import {
   createEmptyState,
   normalizeActiveGoal,
+  normalizeAllowanceAuto,
   normalizeBusinesses,
+  normalizeReminders,
+  normalizeSubscriptions,
+  normalizeTimezoneSource,
   STORAGE_KEY,
   type AppState,
+  type PushSubscriptionJSON,
 } from '../types'
+// PushSubscriptionJSON is our local type alias in types.ts
+import { isValidTimeZone } from './timezone'
+
+function normalizePushSubscription(raw: unknown): PushSubscriptionJSON | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  if (typeof o.endpoint !== 'string' || !o.endpoint) return null
+  return raw as PushSubscriptionJSON
+}
 
 export function loadState(): AppState {
   try {
@@ -16,10 +30,13 @@ export function loadState(): AppState {
       return createEmptyState()
     }
     const activeGoal = normalizeActiveGoal(parsed.settings)
+    const empty = createEmptyState().settings
+    const tzRaw = String(parsed.settings.timezone || '').trim()
+    const timezone = isValidTimeZone(tzRaw) ? tzRaw : empty.timezone
     return {
       version: 1,
       settings: {
-        ...createEmptyState().settings,
+        ...empty,
         ...parsed.settings,
         allocation: normalizeAllocationPct(parsed.settings.allocation),
         activeGoal,
@@ -36,6 +53,16 @@ export function loadState(): AppState {
           ? parsed.settings.printxIgnoredEventIds
           : [],
         printxAutoSettleV2: Boolean(parsed.settings.printxAutoSettleV2),
+        timezone,
+        timezoneSource: normalizeTimezoneSource(parsed.settings.timezoneSource),
+        allowanceAuto: normalizeAllowanceAuto(parsed.settings.allowanceAuto),
+        subscriptions: normalizeSubscriptions(parsed.settings.subscriptions),
+        reminders: normalizeReminders(parsed.settings.reminders),
+        pushSubscription: normalizePushSubscription(parsed.settings.pushSubscription),
+        lastWeeklyReviewNotifiedKey: parsed.settings.lastWeeklyReviewNotifiedKey
+          ? String(parsed.settings.lastWeeklyReviewNotifiedKey)
+          : null,
+        lastRecurringSkip: parsed.settings.lastRecurringSkip ?? null,
       },
 
       transactions: parsed.transactions,

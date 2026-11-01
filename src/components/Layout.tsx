@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { CelebrationModal } from './CelebrationModal'
 import { FundlyLogo } from './FundlyLogo'
+import { TimezonePrompt } from './TimezonePrompt'
 import { useMoney } from '../store/MoneyContext'
 
 type NavItem = { to: string; label: string; icon: typeof LayoutDashboard }
@@ -81,6 +82,7 @@ export function Layout() {
   return (
     <div className="app-bg flex min-h-dvh w-full flex-col">
       <CelebrationModal />
+      <TimezonePrompt />
       <div className="flex min-h-dvh w-full flex-1">
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)]/40 p-4 lg:flex">
           <div className="mb-8 px-2">

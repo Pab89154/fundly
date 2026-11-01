@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  Bell,
   Briefcase,
   CloudUpload,
   Download,
+  Globe,
   Lock,
   Pencil,
   Plus,
+  RefreshCw,
   Settings as SettingsIcon,
   Target,
   Trash2,
@@ -14,6 +17,8 @@ import {
 import { useMoney } from '../store/MoneyContext'
 import { fromCents, isValidAllocationPct, localDateISO, toCents } from '../lib/money'
 import { downloadCsv, transactionsToCsv } from '../lib/csv'
+import { ensureNotificationPermission } from '../lib/notify'
+import { openTimezonePicker } from '../components/TimezonePrompt'
 import { NativeSelect } from '../components/NativeSelect'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import {
@@ -21,10 +26,32 @@ import {
   slugifyBusinessId,
   type ActiveGoal,
   type Business,
+  type RecurringCadence,
+  type Subscription,
 } from '../types'
+import { newId } from '../lib/storage'
+import { zonedDateISO } from '../lib/timezone'
+
+const WEEKDAYS = [
+  { value: '0', label: 'Sunday' },
+  { value: '1', label: 'Monday' },
+  { value: '2', label: 'Tuesday' },
+  { value: '3', label: 'Wednesday' },
+  { value: '4', label: 'Thursday' },
+  { value: '5', label: 'Friday' },
+  { value: '6', label: 'Saturday' },
+]
 
 export function Settings() {
-  const { state, updateSettings, resetAllData, cloud } = useMoney()
+  const {
+    state,
+    updateSettings,
+    resetAllData,
+    cloud,
+    upsertSubscription,
+    removeSubscription,
+    applyRecurringNow,
+  } = useMoney()
   const navigate = useNavigate()
   const goal = state.settings.activeGoal
 
@@ -48,10 +75,18 @@ export function Settings() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmDeleteGoal, setConfirmDeleteGoal] = useState(false)
   const [confirmDeleteBusinessId, setConfirmDeleteBusinessId] = useState<string | null>(null)
+  const [confirmDeleteSubId, setConfirmDeleteSubId] = useState<string | null>(null)
   const [bizEditingId, setBizEditingId] = useState<string | null>(null)
   const [bizCreating, setBizCreating] = useState(false)
   const [bizName, setBizName] = useState('')
   const [bizNote, setBizNote] = useState('')
+  const [bizMonthly, setBizMonthly] = useState('')
+  const [subEditingId, setSubEditingId] = useState<string | null>(null)
+  const [subCreating, setSubCreating] = useState(false)
+  const [subName, setSubName] = useState('')
+  const [subAmount, setSubAmount] = useState('')
+  const [subCadence, setSubCadence] = useState<RecurringCadence>('monthly')
+  const [subNext, setSubNext] = useState(() => zonedDateISO(state.settings.timezone || 'America/Chicago'))
 
   useEffect(() => {
     const g = state.settings.activeGoal
@@ -111,6 +146,7 @@ export function Settings() {
     setBizEditingId(null)
     setBizName('')
     setBizNote('')
+    setBizMonthly('')
     setErr('')
     setMsg('')
   }
@@ -120,6 +156,11 @@ export function Settings() {
     setBizEditingId(b.id)
     setBizName(b.name)
     setBizNote(b.note)
+    setBizMonthly(
+      b.monthlyTargetCents != null && b.monthlyTargetCents > 0
+        ? fromCents(b.monthlyTargetCents).toFixed(2)
+        : '',
+    )
     setErr('')
     setMsg('')
   }
@@ -129,6 +170,7 @@ export function Settings() {
     setBizEditingId(null)
     setBizName('')
     setBizNote('')
+    setBizMonthly('')
   }
 
   const saveBusiness = (e: React.FormEvent) => {
@@ -149,10 +191,12 @@ export function Settings() {
         setErr('Business not found.')
         return
       }
+      const monthlyCents = bizMonthly.trim() ? toCents(Number(bizMonthly)) : null
       list[idx] = {
         ...list[idx]!,
         name,
         note: bizNote.trim(),
+        monthlyTargetCents: monthlyCents && monthlyCents > 0 ? monthlyCents : null,
         updatedAt: now,
       }
       const res = updateSettings({ businesses: list })
@@ -173,10 +217,12 @@ export function Settings() {
     if (list.some((b) => b.id === id)) {
       id = `${id}_${Date.now().toString(36).slice(-4)}`
     }
+    const monthlyCents = bizMonthly.trim() ? toCents(Number(bizMonthly)) : null
     list.push({
       id,
       name,
       note: bizNote.trim(),
+      monthlyTargetCents: monthlyCents && monthlyCents > 0 ? monthlyCents : null,
       createdAt: now,
     })
     const res = updateSettings({ businesses: list })
@@ -438,6 +484,18 @@ export function Settings() {
                 placeholder="How you track this business"
               />
             </div>
+            <div>
+              <label className="label">Monthly sales target (optional)</label>
+              <input
+                className="field"
+                type="number"
+                min="0"
+                step="0.01"
+                value={bizMonthly}
+                onChange={(e) => setBizMonthly(e.target.value)}
+                placeholder="200.00"
+              />
+            </div>
             <div className="flex flex-wrap gap-2">
               <button type="submit" className="btn btn-primary">
                 {bizEditingId ? 'Save business' : 'Create business'}
@@ -448,6 +506,314 @@ export function Settings() {
             </div>
           </form>
         ) : null}
+      </section>
+
+      <section className="card space-y-4 p-5">
+        <h3 className="flex items-center gap-2 text-lg font-bold">
+          <Globe size={18} className="text-[var(--blue)]" aria-hidden />
+          Timezone
+        </h3>
+        <p className="text-sm text-[var(--muted)]">
+          {state.settings.timezone
+            ? `${state.settings.timezone.replace(/_/g, ' ')} · ${
+                state.settings.timezoneSource === 'manual' ? 'chosen by you' : 'from this device'
+              }`
+            : 'Not set yet'}
+        </p>
+        <button type="button" className="btn btn-secondary" onClick={() => openTimezonePicker()}>
+          Change…
+        </button>
+      </section>
+
+      <section className="card space-y-4 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+              <RefreshCw size={18} className="text-[var(--green)]" aria-hidden />
+              Recurring
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Auto weekly allowance and spending-only subscriptions. Applied by the server and when
+              you open Fundly.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              const r = applyRecurringNow()
+              setMsg(
+                r.applied
+                  ? `Applied ${r.applied} due item(s).`
+                  : 'Nothing due right now.',
+              )
+            }}
+          >
+            Apply due now
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-4 space-y-3">
+          <label className="flex items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              checked={state.settings.allowanceAuto.enabled}
+              onChange={(e) =>
+                updateSettings({
+                  allowanceAuto: {
+                    ...state.settings.allowanceAuto,
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+            Auto weekly allowance
+          </label>
+          <div>
+            <label className="label">Allowance day</label>
+            <NativeSelect
+              aria-label="Allowance weekday"
+              value={String(state.settings.allowanceAuto.weekday)}
+              onChange={(v) =>
+                updateSettings({
+                  allowanceAuto: {
+                    ...state.settings.allowanceAuto,
+                    weekday: Number(v),
+                  },
+                })
+              }
+              options={WEEKDAYS}
+            />
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            Amount comes from Weekly allowance below (${allowance}).
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="font-semibold">Subscriptions</h4>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setSubCreating(true)
+              setSubEditingId(null)
+              setSubName('')
+              setSubAmount('')
+              setSubCadence('monthly')
+              setSubNext(zonedDateISO(state.settings.timezone || 'America/Chicago'))
+            }}
+          >
+            <Plus size={16} aria-hidden />
+            Add
+          </button>
+        </div>
+        {state.settings.subscriptions.length === 0 && !subCreating ? (
+          <p className="text-sm text-[var(--muted)]">No subscriptions yet — e.g. apps, Netflix.</p>
+        ) : (
+          <ul className="space-y-2">
+            {state.settings.subscriptions.map((s) => (
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] px-3 py-2"
+              >
+                <div>
+                  <p className="font-semibold">
+                    {s.name}{' '}
+                    <span className="text-sm font-normal text-[var(--muted)]">
+                      · {fromCents(s.amountCents).toFixed(2)} / {s.cadence}
+                      {!s.enabled ? ' · paused' : ''}
+                    </span>
+                  </p>
+                  <p className="text-xs text-[var(--muted)]">Next {s.nextDueDate}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-secondary px-3 py-1.5 text-xs"
+                    onClick={() => {
+                      setSubCreating(false)
+                      setSubEditingId(s.id)
+                      setSubName(s.name)
+                      setSubAmount(fromCents(s.amountCents).toFixed(2))
+                      setSubCadence(s.cadence)
+                      setSubNext(s.nextDueDate)
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger px-3 py-1.5 text-xs"
+                    onClick={() => setConfirmDeleteSubId(s.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {subCreating || subEditingId ? (
+          <form
+            className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setErr('')
+              const amountCents = toCents(Number(subAmount))
+              const name = subName.trim()
+              if (!name || amountCents <= 0) {
+                setErr('Subscription needs a name and amount.')
+                return
+              }
+              const id = subEditingId || newId()
+              const existing = state.settings.subscriptions.find((s) => s.id === id)
+              const sub: Subscription = {
+                id,
+                name,
+                amountCents,
+                cadence: subCadence,
+                anchorDate: existing?.anchorDate || subNext,
+                nextDueDate: subNext,
+                enabled: existing?.enabled ?? true,
+                createdAt: existing?.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+              const res = upsertSubscription(sub)
+              if (!res.ok) {
+                setErr(res.error)
+                return
+              }
+              setSubCreating(false)
+              setSubEditingId(null)
+              setMsg(subEditingId ? 'Subscription updated.' : 'Subscription added.')
+            }}
+          >
+            <p className="text-sm font-semibold">{subEditingId ? 'Edit subscription' : 'New subscription'}</p>
+            <div>
+              <label className="label">Name</label>
+              <input className="field" value={subName} onChange={(e) => setSubName(e.target.value)} required />
+            </div>
+            <div>
+              <label className="label">Amount (USD)</label>
+              <input
+                className="field"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={subAmount}
+                onChange={(e) => setSubAmount(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Cadence</label>
+              <NativeSelect
+                aria-label="Cadence"
+                value={subCadence}
+                onChange={(v) => setSubCadence(v as RecurringCadence)}
+                options={[
+                  { value: 'weekly', label: 'Weekly' },
+                  { value: 'monthly', label: 'Monthly' },
+                  { value: 'yearly', label: 'Yearly' },
+                ]}
+              />
+            </div>
+            <div>
+              <label className="label">Next due</label>
+              <input
+                className="field"
+                type="date"
+                value={subNext}
+                onChange={(e) => setSubNext(e.target.value)}
+                required
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" className="btn btn-primary">
+                Save
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setSubCreating(false)
+                  setSubEditingId(null)
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </section>
+
+      <section className="card space-y-4 p-5">
+        <h3 className="flex items-center gap-2 text-lg font-bold">
+          <Bell size={18} className="text-[var(--orange)]" aria-hidden />
+          Reminders
+        </h3>
+        <p className="text-sm text-[var(--muted)]">
+          Browser notifications for allowance, failed subscriptions, Apple Cash mismatch, and weekly
+          review (“See this week!”).
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => {
+            void ensureNotificationPermission().then((p) => {
+              if (p === 'granted') {
+                updateSettings({
+                  reminders: { ...state.settings.reminders, webPushEnabled: true },
+                })
+                setMsg('Notifications allowed.')
+              } else if (p === 'denied') {
+                setErr('Notifications blocked in browser settings.')
+              } else {
+                setMsg(`Notification permission: ${p}`)
+              }
+            })
+          }}
+        >
+          Enable notifications
+        </button>
+        {(
+          [
+            ['notifyAllowance', 'When allowance is added'],
+            ['notifySubscriptionFail', 'When a subscription can’t be paid'],
+            ['notifyAppleMismatch', 'When Apple Cash doesn’t match'],
+            ['notifyWeeklyReview', 'Weekly review — “See this week!”'],
+          ] as const
+        ).map(([key, label]) => (
+          <label key={key} className="flex items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              checked={Boolean(state.settings.reminders[key])}
+              onChange={(e) =>
+                updateSettings({
+                  reminders: { ...state.settings.reminders, [key]: e.target.checked },
+                })
+              }
+            />
+            {label}
+          </label>
+        ))}
+        <div>
+          <label className="label">Weekly review day</label>
+          <NativeSelect
+            aria-label="Weekly review weekday"
+            value={String(state.settings.reminders.weeklyReviewWeekday)}
+            onChange={(v) =>
+              updateSettings({
+                reminders: {
+                  ...state.settings.reminders,
+                  weeklyReviewWeekday: Number(v),
+                },
+              })
+            }
+            options={WEEKDAYS}
+          />
+        </div>
       </section>
 
       <form className="card space-y-4 p-5" onSubmit={save}>
@@ -651,6 +1017,19 @@ export function Settings() {
         danger
         onCancel={() => setConfirmDeleteBusinessId(null)}
         onConfirm={deleteBusiness}
+      />
+      <ConfirmDialog
+        open={Boolean(confirmDeleteSubId)}
+        title="Remove this subscription?"
+        message="Future auto-charges stop. Past spending stays in Transactions."
+        confirmLabel="Remove subscription"
+        danger
+        onCancel={() => setConfirmDeleteSubId(null)}
+        onConfirm={() => {
+          if (confirmDeleteSubId) removeSubscription(confirmDeleteSubId)
+          setConfirmDeleteSubId(null)
+          setMsg('Subscription removed.')
+        }}
       />
     </div>
   )

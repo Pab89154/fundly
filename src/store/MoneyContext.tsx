@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -22,19 +23,27 @@ import {
   type AllocationPct,
 } from '../lib/money'
 import { computeBalances } from '../lib/balances'
+import { applyDueRecurring, logWeeklyAllowanceTx } from '../lib/recurring'
 import { clearState, loadState, newId, saveState } from '../lib/storage'
+import { detectDeviceTimeZone, isValidTimeZone, zonedDateISO } from '../lib/timezone'
 import { fetchCloudState, logoutFundly, saveCloudState } from '../lib/fundlyApi'
+import { maybeNotify } from '../lib/notify'
 import {
   createEmptyState,
   goalTargetCents,
   normalizeActiveGoal,
+  normalizeAllowanceAuto,
   normalizeBusinesses,
+  normalizeReminders,
+  normalizeSubscriptions,
+  normalizeTimezoneSource,
   type AppState,
   type IncomeSource,
   type PrintxFeedEvent,
   type PrintxPaySource,
   type Settings,
   type SpendCategory,
+  type Subscription,
   type Transaction,
 } from '../types'
 
@@ -174,12 +183,44 @@ type MoneyContextValue = {
   resetAllData: () => void
   celebration: number | null
   dismissCelebration: () => void
+  /** True when timezone is unset / detection failed — show picker. */
+  needsTimezonePrompt: boolean
+  setTimezoneManual: (tz: string) => { ok: true } | { ok: false; error: string }
+  applyRecurringNow: () => { applied: number; events: string[] }
+  logWeeklyAllowance: () => { ok: true } | { ok: false; error: string }
+  upsertSubscription: (sub: Subscription) => { ok: true } | { ok: false; error: string }
+  removeSubscription: (id: string) => void
   cloud: {
     ready: boolean
     empty: boolean
     lastError: string | null
     uploadLocalToCloud: () => Promise<{ ok: true } | { ok: false; error: string }>
     lockNow: () => Promise<void>
+  }
+}
+
+function normalizeLoadedSettings(settings: Settings): Settings {
+  const empty = createEmptyState().settings
+  const activeGoal = normalizeActiveGoal(settings)
+  const tzRaw = String(settings.timezone || '').trim()
+  return {
+    ...empty,
+    ...settings,
+    allocation: normalizeAllocationPct(settings.allocation),
+    activeGoal,
+    goalCents: activeGoal?.targetCents ?? 0,
+    businesses: normalizeBusinesses(settings.businesses),
+    timezone: isValidTimeZone(tzRaw) ? tzRaw : '',
+    timezoneSource: normalizeTimezoneSource(settings.timezoneSource),
+    allowanceAuto: normalizeAllowanceAuto(settings.allowanceAuto),
+    subscriptions: normalizeSubscriptions(settings.subscriptions),
+    reminders: normalizeReminders(settings.reminders),
+    pushSubscription: settings.pushSubscription ?? null,
+    lastWeeklyReviewNotifiedKey: settings.lastWeeklyReviewNotifiedKey ?? null,
+    lastRecurringSkip: settings.lastRecurringSkip ?? null,
+    printxIgnoredEventIds: Array.isArray(settings.printxIgnoredEventIds)
+      ? settings.printxIgnoredEventIds
+      : [],
   }
 }
 
@@ -231,29 +272,13 @@ export function MoneyProvider({
       }
       setCloudEmpty(remote.empty)
       if (!remote.empty) {
-        const activeGoal = normalizeActiveGoal(remote.state.settings)
         const next: AppState = {
           ...remote.state,
-          settings: {
-            ...createEmptyState().settings,
-            ...remote.state.settings,
-            allocation: normalizeAllocationPct(remote.state.settings.allocation),
-            activeGoal,
-            goalCents: activeGoal?.targetCents ?? 0,
-            businesses: normalizeBusinesses(remote.state.settings.businesses),
-            printxOpenOwedCents: Number(remote.state.settings.printxOpenOwedCents) || 0,
-            printxOpenResolvedCents: Number(remote.state.settings.printxOpenResolvedCents) || 0,
-            printxLastResolvedCents: Number(remote.state.settings.printxLastResolvedCents) || 0,
-            printxLastResolvedAt: remote.state.settings.printxLastResolvedAt ?? null,
-            printxResolveUndo: remote.state.settings.printxResolveUndo ?? null,
-            printxIgnoredEventIds: Array.isArray(remote.state.settings.printxIgnoredEventIds)
-              ? (remote.state.settings.printxIgnoredEventIds as string[])
-              : [],
-            printxAutoSettleV2: Boolean(remote.state.settings.printxAutoSettleV2),
-          },
+          settings: normalizeLoadedSettings(remote.state.settings as Settings),
         }
-        setState(stripLegacyPrintxResolves(next))
-        saveState(stripLegacyPrintxResolves(next))
+        const cleaned = stripLegacyPrintxResolves(next)
+        setState(cleaned)
+        saveState(cleaned)
       }
       setCloudReady(true)
       setCloudHydrated(true)
@@ -268,7 +293,73 @@ export function MoneyProvider({
     document.documentElement.classList.toggle('light', state.settings.theme === 'light')
   }, [state.settings.theme])
 
+  // Auto-detect timezone; leave unset so UI can prompt if detection fails.
+  useEffect(() => {
+    if (!cloudHydrated) return
+    setState((prev) => {
+      const src = prev.settings.timezoneSource
+      if (src === 'manual' && isValidTimeZone(prev.settings.timezone)) return prev
+      const detected = detectDeviceTimeZone()
+      if (detected) {
+        if (prev.settings.timezone === detected && src === 'auto') return prev
+        return {
+          ...prev,
+          settings: {
+            ...prev.settings,
+            timezone: detected,
+            timezoneSource: 'auto',
+          },
+        }
+      }
+      if (src === 'unset' || !isValidTimeZone(prev.settings.timezone)) {
+        return {
+          ...prev,
+          settings: { ...prev.settings, timezone: '', timezoneSource: 'unset' },
+        }
+      }
+      return prev
+    })
+  }, [cloudHydrated])
+
+  const recurringDayKey = useRef('')
+  // Catch-up recurring once per local calendar day after hydrate / timezone ready
+  useEffect(() => {
+    if (!cloudHydrated) return
+    if (!isValidTimeZone(state.settings.timezone)) return
+    const dayKey = `${state.settings.timezone}:${zonedDateISO(state.settings.timezone)}`
+    if (recurringDayKey.current === dayKey) return
+    recurringDayKey.current = dayKey
+    setState((prev) => {
+      if (!isValidTimeZone(prev.settings.timezone)) return prev
+      const { state: next, events } = applyDueRecurring(prev)
+      if (events.length === 0) return prev
+      for (const ev of events) {
+        if (ev.kind === 'allowance' && next.settings.reminders.notifyAllowance) {
+          maybeNotify('Allowance added', `+$${(ev.amountCents / 100).toFixed(2)} split into your pots.`, {
+            tag: ev.externalId,
+          })
+        }
+        if (ev.kind === 'subscription_skip' && next.settings.reminders.notifySubscriptionFail) {
+          maybeNotify(
+            'Subscription skipped',
+            `${ev.name}: not enough Spending money.`,
+            { tag: `skip-${ev.subscriptionId}-${ev.date}` },
+          )
+        }
+        if (ev.kind === 'weekly_review' && next.settings.reminders.notifyWeeklyReview) {
+          maybeNotify('See this week!', 'Open Fundly to see how you did.', {
+            tag: ev.weekKey,
+            url: '/#this-week',
+          })
+        }
+      }
+      return next
+    })
+  }, [cloudHydrated, state.settings.timezone])
+
   const balances = useMemo(() => computeBalances(state.transactions), [state.transactions])
+  const needsTimezonePrompt =
+    state.settings.timezoneSource === 'unset' || !isValidTimeZone(state.settings.timezone)
   /** Open on PrintX Money — Sync updates this; Mark settled on PrintX lowers it. */
   const printxOpenRemainingCents = Math.max(0, Number(state.settings.printxOpenOwedCents) || 0)
   const canUndoResolvePrintx = state.transactions.some(isUndoablePrintxPayout)
@@ -447,9 +538,92 @@ export function MoneyProvider({
       if ('businesses' in patch) {
         next.businesses = normalizeBusinesses(patch.businesses ?? [])
       }
+      if ('subscriptions' in patch) {
+        next.subscriptions = normalizeSubscriptions(patch.subscriptions ?? [])
+      }
+      if ('allowanceAuto' in patch && patch.allowanceAuto) {
+        next.allowanceAuto = normalizeAllowanceAuto(patch.allowanceAuto)
+      }
+      if ('reminders' in patch && patch.reminders) {
+        next.reminders = normalizeReminders(patch.reminders)
+      }
+      if ('timezone' in patch && patch.timezone != null) {
+        const tz = String(patch.timezone).trim()
+        next.timezone = isValidTimeZone(tz) ? tz : next.timezone
+      }
+      if ('timezoneSource' in patch && patch.timezoneSource) {
+        next.timezoneSource = normalizeTimezoneSource(patch.timezoneSource)
+      }
       return { ...prev, settings: next }
     })
     return { ok: true as const }
+  }, [])
+
+  const setTimezoneManual = useCallback((tz: string) => {
+    if (!isValidTimeZone(tz)) return { ok: false as const, error: 'Pick a valid timezone.' }
+    setState((prev) => ({
+      ...prev,
+      settings: { ...prev.settings, timezone: tz, timezoneSource: 'manual' },
+    }))
+    return { ok: true as const }
+  }, [])
+
+  const applyRecurringNow = useCallback(() => {
+    let applied = 0
+    const labels: string[] = []
+    setState((prev) => {
+      const { state: next, events } = applyDueRecurring(prev)
+      applied = events.filter((e) => e.kind !== 'weekly_review').length
+      for (const ev of events) {
+        if (ev.kind === 'allowance') labels.push(`allowance ${ev.date}`)
+        if (ev.kind === 'subscription') labels.push(`${ev.name} ${ev.date}`)
+        if (ev.kind === 'subscription_skip') labels.push(`skipped ${ev.name}`)
+        if (ev.kind === 'weekly_review') labels.push(`review ${ev.weekKey}`)
+      }
+      return events.length ? next : prev
+    })
+    return { applied, events: labels }
+  }, [])
+
+  const logWeeklyAllowance = useCallback(() => {
+    let result: { ok: true } | { ok: false; error: string } = { ok: false, error: 'Unknown error' }
+    setState((prev) => {
+      const res = logWeeklyAllowanceTx(prev)
+      if (!res.ok) {
+        result = res
+        return prev
+      }
+      result = { ok: true }
+      return res.state
+    })
+    return result
+  }, [])
+
+  const upsertSubscription = useCallback((sub: Subscription) => {
+    if (!sub.name.trim() || sub.amountCents <= 0) {
+      return { ok: false as const, error: 'Name and amount are required.' }
+    }
+    setState((prev) => {
+      const list = [...prev.settings.subscriptions]
+      const idx = list.findIndex((s) => s.id === sub.id)
+      if (idx >= 0) list[idx] = { ...sub, updatedAt: new Date().toISOString() }
+      else list.push(sub)
+      return {
+        ...prev,
+        settings: { ...prev.settings, subscriptions: normalizeSubscriptions(list) },
+      }
+    })
+    return { ok: true as const }
+  }, [])
+
+  const removeSubscription = useCallback((id: string) => {
+    setState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        subscriptions: prev.settings.subscriptions.filter((s) => s.id !== id),
+      },
+    }))
   }, [])
 
   const completeOnboarding = useCallback((input: OnboardingInput) => {
@@ -1068,6 +1242,12 @@ export function MoneyProvider({
     resetAllData,
     celebration,
     dismissCelebration: () => setCelebration(null),
+    needsTimezonePrompt,
+    setTimezoneManual,
+    applyRecurringNow,
+    logWeeklyAllowance,
+    upsertSubscription,
+    removeSubscription,
     cloud: {
       ready: cloudReady,
       empty: cloudEmpty,

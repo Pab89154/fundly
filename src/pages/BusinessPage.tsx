@@ -46,8 +46,20 @@ export function BusinessPage() {
       .map(([weekStart, cents]) => ({
         week: weekStart.slice(5),
         usd: fromCents(cents),
+        cents,
       }))
   }, [state.transactions, businessId])
+
+  const bestWeek = useMemo(() => {
+    if (weeklyChart.length === 0) return null
+    return weeklyChart.reduce((a, b) => (b.cents > a.cents ? b : a))
+  }, [weeklyChart])
+
+  const monthTarget = business?.monthlyTargetCents ?? null
+  const monthPct =
+    monthTarget && monthTarget > 0
+      ? Math.min(100, Math.round((month / monthTarget) * 1000) / 10)
+      : null
 
   const recent = state.transactions
     .filter((t) => t.source === businessId)
@@ -77,7 +89,7 @@ export function BusinessPage() {
         </Link>
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">This week</p>
           <p className="mt-2 text-2xl font-extrabold">{formatUsd(week)}</p>
@@ -85,6 +97,25 @@ export function BusinessPage() {
         <div className="card p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">This month</p>
           <p className="mt-2 text-2xl font-extrabold">{formatUsd(month)}</p>
+          {monthTarget && monthTarget > 0 ? (
+            <>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Target {formatUsd(monthTarget)} · {monthPct}%
+              </p>
+              <div className="progress-track mt-2">
+                <div className="progress-fill" style={{ width: `${monthPct}%` }} />
+              </div>
+            </>
+          ) : null}
+        </div>
+        <div className="card p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Best week</p>
+          <p className="mt-2 text-2xl font-extrabold">
+            {bestWeek ? formatUsd(bestWeek.cents) : formatUsd(0)}
+          </p>
+          {bestWeek ? (
+            <p className="mt-2 text-xs text-[var(--muted)]">Week of {bestWeek.week}</p>
+          ) : null}
         </div>
         <div className="card p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">All time</p>

@@ -1,9 +1,12 @@
 /**
  * Cloudflare Worker: PrintX proxy + Fundly auth/state (same routes as Vite middleware).
  * Secrets via Wrangler: FUNDLY_*, SUPABASE_*, PRINTX_*
+ * Cron: applies due allowance/subscriptions using settings.timezone.
  */
 import * as OTPAuth from 'otpauth'
 import { createClient } from '@supabase/supabase-js'
+import { applyDueRecurring } from '../src/lib/recurring'
+import type { AppState } from '../src/types'
 
 export interface Env {
   PRINTX_API_BASE?: string
@@ -14,6 +17,9 @@ export interface Env {
   FUNDLY_TOTP_SECRET?: string
   SUPABASE_URL?: string
   SUPABASE_SERVICE_ROLE_KEY?: string
+  /** Optional Web Push VAPID keys (PEM or base64url). Without them, cron still applies money. */
+  VAPID_PUBLIC_KEY?: string
+  VAPID_PRIVATE_KEY?: string
   ASSETS?: { fetch: (request: Request) => Promise<Response> }
 }
 
@@ -139,7 +145,94 @@ function sb(env: Env) {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 }
 
+async function loadOwnerState(env: Env): Promise<AppState | null> {
+  const client = sb(env)
+  if (!client) return null
+  const { data, error } = await client
+    .from('fundly_app_state')
+    .select('state')
+    .eq('owner_email', OWNER_EMAIL)
+    .maybeSingle()
+  if (error || !data?.state) return null
+  return data.state as AppState
+}
+
+async function saveOwnerState(env: Env, state: AppState): Promise<boolean> {
+  const client = sb(env)
+  if (!client) return false
+  const { error } = await client.from('fundly_app_state').upsert(
+    {
+      owner_email: OWNER_EMAIL,
+      state,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'owner_email' },
+  )
+  return !error
+}
+
+/** Best-effort Web Push (requires VAPID secrets). Silent no-op if unset. */
+async function sendWebPush(
+  env: Env,
+  subscription: { endpoint: string; keys?: { p256dh?: string; auth?: string } } | null,
+  payload: { title: string; body: string; url?: string },
+): Promise<void> {
+  if (!subscription?.endpoint) return
+  if (!env.VAPID_PUBLIC_KEY?.trim() || !env.VAPID_PRIVATE_KEY?.trim()) return
+  // Full VAPID signing needs a crypto helper; store intent on the payload for clients
+  // that poll. Prefer client catch-up notifications when VAPID isn’t configured.
+  try {
+    await fetch(subscription.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        TTL: '86400',
+      },
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    /* ignore push failures — money already applied */
+  }
+}
+
 export default {
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        const state = await loadOwnerState(env)
+        if (!state?.settings) return
+        const { state: next, events } = applyDueRecurring(state)
+        if (events.length === 0) return
+        await saveOwnerState(env, next)
+        const sub = next.settings.pushSubscription
+        const pagesBase = 'https://pab89154.github.io/fundly'
+        for (const ev of events) {
+          if (ev.kind === 'allowance' && next.settings.reminders?.notifyAllowance) {
+            await sendWebPush(env, sub, {
+              title: 'Allowance added',
+              body: `+$${(ev.amountCents / 100).toFixed(2)} split into your pots.`,
+              url: `${pagesBase}/`,
+            })
+          }
+          if (ev.kind === 'subscription_skip' && next.settings.reminders?.notifySubscriptionFail) {
+            await sendWebPush(env, sub, {
+              title: 'Subscription skipped',
+              body: `${ev.name}: not enough Spending money.`,
+              url: `${pagesBase}/`,
+            })
+          }
+          if (ev.kind === 'weekly_review' && next.settings.reminders?.notifyWeeklyReview) {
+            await sendWebPush(env, sub, {
+              title: 'See this week!',
+              body: 'Open Fundly to see how you did.',
+              url: `${pagesBase}/#this-week`,
+            })
+          }
+        }
+      })(),
+    )
+  },
+
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname

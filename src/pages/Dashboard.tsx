@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,8 +11,18 @@ import {
   Watch,
   Wallet,
 } from 'lucide-react'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd, fromCents } from '../lib/money'
+import { formatSignedUsd, formatUsd, fromCents } from '../lib/money'
 import {
   allowanceTotalCents,
   businessEarningsCents,
@@ -19,11 +30,18 @@ import {
   printxEarningsCents,
   weekNumber,
 } from '../lib/balances'
+import { mondayOfISOWeek, weekStats } from '../lib/recurring'
+import { addDaysISO, zonedDateISO } from '../lib/timezone'
 import { StatCard } from '../components/StatCard'
 import { goalName, goalTargetCents } from '../types'
+import { normalizeAllocationCents } from '../lib/money'
 
 export function Dashboard() {
-  const { state, balances } = useMoney()
+  const { state, balances, logWeeklyAllowance } = useMoney()
+  const location = useLocation()
+  const [allowMsg, setAllowMsg] = useState('')
+  const [weekFlash, setWeekFlash] = useState(false)
+
   const active = state.settings.activeGoal
   const name = goalName(state.settings)
   const goal = goalTargetCents(state.settings)
@@ -47,6 +65,56 @@ export function Dashboard() {
         : appleDiff! > 0
           ? 'Over Wallet'
           : 'Under Wallet'
+  const appleProblem = apple == null || appleDiff !== 0
+
+  const tz = state.settings.timezone || 'America/Chicago'
+  const today = zonedDateISO(tz)
+  const weekStart = mondayOfISOWeek(today)
+  const weekEnd = addDaysISO(weekStart, 6)
+  const week = weekStats(state.transactions, weekStart, weekEnd)
+
+  const goalChart = useMemo(() => {
+    const txs = [...state.transactions].sort(
+      (a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt),
+    )
+    let running = 0
+    const points: { date: string; goal: number; target: number }[] = []
+    for (const tx of txs) {
+      if (tx.settledAt === null) continue
+      if (tx.allocation) {
+        const a = normalizeAllocationCents(tx.allocation)
+        running += a.iphone
+      }
+      if (points.length === 0 || points[points.length - 1]!.date !== tx.date) {
+        points.push({ date: tx.date, goal: fromCents(running), target: fromCents(goal) })
+      } else {
+        points[points.length - 1]!.goal = fromCents(running)
+      }
+    }
+    if (points.length === 0) {
+      points.push({ date: today, goal: fromCents(saved), target: fromCents(goal) })
+    }
+    return points.slice(-40)
+  }, [state.transactions, goal, saved, today])
+
+  useEffect(() => {
+    if (location.hash === '#this-week' || new URLSearchParams(location.search).get('focus') === 'week') {
+      setWeekFlash(true)
+      document.getElementById('this-week')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const t = window.setTimeout(() => setWeekFlash(false), 2500)
+      return () => window.clearTimeout(t)
+    }
+  }, [location.hash, location.search])
+
+  const onLogAllowance = () => {
+    setAllowMsg('')
+    const res = logWeeklyAllowance()
+    if (!res.ok) {
+      setAllowMsg(res.error)
+      return
+    }
+    setAllowMsg('Allowance logged and split into your pots.')
+  }
 
   return (
     <div className="space-y-6">
@@ -59,11 +127,97 @@ export function Dashboard() {
           </p>
         </div>
         <p className="mt-1.5 max-w-2xl text-sm text-[var(--muted)]">
-          {active
-            ? `Working toward ${name}.`
-            : 'Set a goal in Settings to track progress.'}
+          {active ? `Working toward ${name}.` : 'Set a goal in Settings to track progress.'}
         </p>
       </header>
+
+      {appleProblem ? (
+        <Link
+          to="/apple-cash"
+          className="card flex items-start gap-3 border-[var(--orange)]/50 bg-[var(--orange)]/10 p-4"
+        >
+          <AlertTriangle className="mt-0.5 shrink-0 text-[var(--orange)]" size={22} aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-[var(--orange)]">
+              {apple == null ? 'Apple Cash not confirmed' : `Apple Cash ${appleStatus}`}
+            </p>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {apple == null
+                ? 'Confirm your Wallet balance so Fundly matches real money.'
+                : `Wallet ${formatUsd(apple)} · Fundly ${formatUsd(balances.combined)} · diff ${formatUsd(Math.abs(appleDiff ?? 0))}. Tap to fix.`}
+            </p>
+          </div>
+        </Link>
+      ) : null}
+
+      <section
+        id="this-week"
+        className={`card space-y-4 p-5 transition ${
+          weekFlash ? 'ring-2 ring-[var(--green)]' : ''
+        }`}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+              <CalendarDays size={18} className="text-[var(--green)]" aria-hidden />
+              This week
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {weekStart} → {weekEnd}
+            </p>
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={onLogAllowance}>
+            Log allowance
+          </button>
+        </div>
+        {allowMsg ? (
+          <p
+            className={`text-sm ${
+              allowMsg.includes('already') || allowMsg.includes('Set')
+                ? 'text-[var(--danger)]'
+                : 'text-[var(--green)]'
+            }`}
+          >
+            {allowMsg}
+          </p>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Income in</p>
+            <p className="mt-1 text-xl font-extrabold text-[var(--green)]">
+              {formatSignedUsd(week.incomeCents, 'in')}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Spent</p>
+            <p className="mt-1 text-xl font-extrabold text-[var(--danger)]">
+              {formatSignedUsd(week.spentCents, 'out')}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              Spending left
+            </p>
+            <p className="mt-1 text-xl font-extrabold text-[var(--blue)]">
+              {formatUsd(balances.spending)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              Goal gained
+            </p>
+            <p className="mt-1 text-xl font-extrabold text-[var(--green)]">
+              {formatSignedUsd(week.goalGainedCents, week.goalGainedCents >= 0 ? 'in' : 'out')}
+            </p>
+          </div>
+        </div>
+        {state.settings.lastRecurringSkip ? (
+          <p className="text-sm text-[var(--orange)]">
+            Subscription skipped: {state.settings.lastRecurringSkip.name} on{' '}
+            {state.settings.lastRecurringSkip.dueDate} — not enough Spending.
+          </p>
+        ) : null}
+      </section>
 
       <section className="card animate-in p-5 sm:p-7">
         {!active ? (
@@ -83,55 +237,67 @@ export function Dashboard() {
           </div>
         ) : (
           <>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="flex items-center gap-2 text-sm font-semibold text-[var(--muted)]">
-              <Target size={16} aria-hidden />
-              {name}
-            </p>
-            <p className="mt-1 text-4xl font-extrabold tracking-tight text-[var(--green)] sm:text-5xl">
-              {formatUsd(saved)}
-            </p>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              Goal {formatUsd(goal)} · {formatUsd(remaining)} remaining · {pct}% complete
-            </p>
-            {active.note ? (
-              <p className="mt-1 text-sm text-[var(--muted)]">{active.note}</p>
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-semibold text-[var(--muted)]">
+                  <Target size={16} aria-hidden />
+                  {name}
+                </p>
+                <p className="mt-1 text-4xl font-extrabold tracking-tight text-[var(--green)] sm:text-5xl">
+                  {formatUsd(saved)}
+                </p>
+                <p className="mt-2 text-sm text-[var(--muted)]">
+                  Goal {formatUsd(goal)} · {formatUsd(remaining)} remaining · {pct}% complete
+                </p>
+                {active.note ? (
+                  <p className="mt-1 text-sm text-[var(--muted)]">{active.note}</p>
+                ) : null}
+              </div>
+              <div className="text-right text-sm text-[var(--muted)]">
+                <p className="inline-flex items-center gap-1.5">
+                  <CalendarDays size={14} aria-hidden />
+                  Estimated goal date
+                </p>
+                <p className="mt-1 text-lg font-bold text-[var(--text)]">
+                  {eta
+                    ? eta.toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })
+                    : '-'}
+                </p>
+              </div>
+            </div>
+            <div className="progress-track mt-6">
+              <div className="progress-fill" style={{ width: `${pct}%` }} />
+            </div>
+            {goal > 0 ? (
+              <div className="mt-6 h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={goalChart}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} hide={goalChart.length > 12} />
+                    <YAxis stroke="var(--muted)" fontSize={11} />
+                    <Tooltip
+                      contentStyle={{
+                        background: 'var(--card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 12,
+                      }}
+                    />
+                    <ReferenceLine y={fromCents(goal)} stroke="var(--green)" strokeDasharray="4 4" />
+                    <Line
+                      type="monotone"
+                      dataKey="goal"
+                      stroke="var(--green)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             ) : null}
-          </div>
-          <div className="text-right text-sm text-[var(--muted)]">
-            <p className="inline-flex items-center gap-1.5">
-              <CalendarDays size={14} aria-hidden />
-              Estimated goal date
-            </p>
-            <p className="mt-1 text-lg font-bold text-[var(--text)]">
-              {eta
-                ? eta.toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })
-                : '-'}
-            </p>
-          </div>
-        </div>
-        <div className="progress-track mt-6">
-          <div className="progress-fill" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
-          <span className="rounded-full bg-[var(--green)]/15 px-3 py-1 text-[var(--green)]">
-            {state.settings.allocation.iphone}% Goal
-          </span>
-          <span className="rounded-full bg-[var(--blue)]/15 px-3 py-1 text-[var(--blue)]">
-            {state.settings.allocation.spending}% Spending
-          </span>
-          <span className="rounded-full bg-[var(--orange)]/15 px-3 py-1 text-[var(--orange)]">
-            {state.settings.allocation.extra}% Extra
-          </span>
-          <span className="rounded-full bg-[var(--pink)]/15 px-3 py-1 text-[var(--pink)]">
-            {state.settings.allocation.charity}% Charity
-          </span>
-        </div>
           </>
         )}
       </section>
@@ -215,36 +381,26 @@ export function Dashboard() {
         </div>
       </div>
 
-      <Link
-        to="/apple-cash"
-        className="card flex items-center justify-between gap-4 p-4 transition hover:border-[var(--green)]"
-      >
-        <div className="flex items-start gap-3">
-          <Wallet size={20} className="mt-0.5 text-[var(--blue)]" aria-hidden />
-          <div>
-            <p className="text-sm font-semibold">Apple Cash</p>
-            <p className="text-sm text-[var(--muted)]">
-              {apple == null
-                ? 'Confirm your Wallet balance'
-                : `${formatUsd(apple)} confirmed · virtual ${formatUsd(balances.combined)}`}
-            </p>
-          </div>
-        </div>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
-            appleStatus === 'Matched'
-              ? 'bg-[var(--green)]/15 text-[var(--green)]'
-              : 'bg-[var(--orange)]/15 text-[var(--orange)]'
-          }`}
+      {!appleProblem ? (
+        <Link
+          to="/apple-cash"
+          className="card flex items-center justify-between gap-4 p-4 transition hover:border-[var(--green)]"
         >
-          {appleStatus === 'Matched' ? (
+          <div className="flex items-start gap-3">
+            <Wallet size={20} className="mt-0.5 text-[var(--blue)]" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold">Apple Cash</p>
+              <p className="text-sm text-[var(--muted)]">
+                {formatUsd(apple!)} confirmed · virtual {formatUsd(balances.combined)}
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--green)]/15 px-3 py-1 text-xs font-bold text-[var(--green)]">
             <CheckCircle2 size={14} aria-hidden />
-          ) : (
-            <AlertTriangle size={14} aria-hidden />
-          )}
-          {appleStatus}
-        </span>
-      </Link>
+            Matched
+          </span>
+        </Link>
+      ) : null}
 
       <p className="text-xs text-[var(--muted)]">
         Expected weekly inflow about $

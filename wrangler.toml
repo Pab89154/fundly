@@ -15,6 +15,10 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 PRINTX_API_BASE = "https://printx.pw"
 
+# Daily ~morning Central (13:00 UTC). Uses settings.timezone for local “today”.
+[triggers]
+crons = ["0 13 * * *"]
+
 # Optional: also serve the Vite build from this Worker
 # [assets]
 # directory = "./dist"

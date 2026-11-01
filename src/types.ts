@@ -20,8 +20,70 @@ export interface Business {
   id: string
   name: string
   note: string
+  /** Optional monthly sales target (cents). */
+  monthlyTargetCents?: number | null
   createdAt: string
   updatedAt?: string
+}
+
+export type TimezoneSource = 'auto' | 'manual' | 'unset'
+
+export type RecurringCadence = 'weekly' | 'monthly' | 'yearly'
+
+export type SpendCategory =
+  | 'food'
+  | 'games'
+  | 'apps'
+  | 'school'
+  | 'transport'
+  | 'apple_cash'
+  | 'other'
+
+/** Spending-only recurring bill (Netflix, apps, …). */
+export interface Subscription {
+  id: string
+  name: string
+  amountCents: number
+  cadence: RecurringCadence
+  /** YYYY-MM-DD series start / reference. */
+  anchorDate: string
+  /** YYYY-MM-DD next due (advanced after each apply). */
+  nextDueDate: string
+  enabled: boolean
+  category?: SpendCategory | string
+  createdAt: string
+  updatedAt?: string
+}
+
+export interface AllowanceAuto {
+  enabled: boolean
+  /** 0=Sun … 6=Sat — day to post weekly allowance. */
+  weekday: number
+}
+
+export interface ReminderSettings {
+  webPushEnabled: boolean
+  notifyAllowance: boolean
+  notifySubscriptionFail: boolean
+  notifyAppleMismatch: boolean
+  notifyWeeklyReview: boolean
+  /** 0=Sun … 6=Sat — “See this week!” day. */
+  weeklyReviewWeekday: number
+}
+
+/** Browser PushSubscription.toJSON() shape (no DOM dependency). */
+export type PushSubscriptionJSON = {
+  endpoint: string
+  expirationTime?: number | null
+  keys?: { p256dh?: string; auth?: string }
+}
+
+export interface RecurringSkipNotice {
+  subscriptionId: string
+  name: string
+  amountCents: number
+  dueDate: string
+  at: string
 }
 
 export const DEFAULT_BUSINESSES: Business[] = [
@@ -64,10 +126,16 @@ export function normalizeBusinesses(raw: unknown): Business[] {
     if (isReservedBusinessId(id) && id !== 'nfc_bracelets') continue
     if (seen.has(id)) continue
     seen.add(id)
+    const monthlyRaw = o.monthlyTargetCents
+    const monthlyTargetCents =
+      monthlyRaw == null || monthlyRaw === ''
+        ? null
+        : Math.max(0, Math.trunc(Number(monthlyRaw) || 0))
     out.push({
       id,
       name,
       note: String(o.note || ''),
+      monthlyTargetCents,
       createdAt: String(o.createdAt || new Date().toISOString()),
       updatedAt: o.updatedAt ? String(o.updatedAt) : undefined,
     })
@@ -75,16 +143,68 @@ export function normalizeBusinesses(raw: unknown): Business[] {
   return out
 }
 
-export type PrintxPaySource = 'stripe' | 'cash'
+export function normalizeSubscriptions(raw: unknown): Subscription[] {
+  if (!Array.isArray(raw)) return []
+  const out: Subscription[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const id = String(o.id || '').trim()
+    const name = String(o.name || '').trim()
+    if (!id || !name || seen.has(id)) continue
+    const cadence = o.cadence
+    if (cadence !== 'weekly' && cadence !== 'monthly' && cadence !== 'yearly') continue
+    const amountCents = Math.max(0, Math.trunc(Number(o.amountCents) || 0))
+    if (amountCents <= 0) continue
+    const anchorDate = String(o.anchorDate || '').slice(0, 10)
+    const nextDueDate = String(o.nextDueDate || anchorDate).slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(anchorDate) || !/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) continue
+    seen.add(id)
+    out.push({
+      id,
+      name,
+      amountCents,
+      cadence,
+      anchorDate,
+      nextDueDate,
+      enabled: o.enabled !== false,
+      category: o.category ? String(o.category) : undefined,
+      createdAt: String(o.createdAt || new Date().toISOString()),
+      updatedAt: o.updatedAt ? String(o.updatedAt) : undefined,
+    })
+  }
+  return out
+}
 
-export type SpendCategory =
-  | 'food'
-  | 'games'
-  | 'apps'
-  | 'school'
-  | 'transport'
-  | 'apple_cash'
-  | 'other'
+export function normalizeAllowanceAuto(raw: unknown): AllowanceAuto {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const weekday = Math.trunc(Number(o.weekday))
+  return {
+    enabled: Boolean(o.enabled),
+    weekday: weekday >= 0 && weekday <= 6 ? weekday : 1,
+  }
+}
+
+export function normalizeReminders(raw: unknown): ReminderSettings {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const wd = Math.trunc(Number(o.weeklyReviewWeekday))
+  return {
+    webPushEnabled: Boolean(o.webPushEnabled),
+    notifyAllowance: o.notifyAllowance !== false,
+    notifySubscriptionFail: o.notifySubscriptionFail !== false,
+    notifyAppleMismatch: o.notifyAppleMismatch !== false,
+    notifyWeeklyReview: o.notifyWeeklyReview !== false,
+    weeklyReviewWeekday: wd >= 0 && wd <= 6 ? wd : 0,
+  }
+}
+
+export function normalizeTimezoneSource(raw: unknown): TimezoneSource {
+  if (raw === 'auto' || raw === 'manual' || raw === 'unset') return raw
+  return 'unset'
+}
+
+export type PrintxPaySource = 'stripe' | 'cash'
 
 export interface Transaction {
   id: string
@@ -163,6 +283,18 @@ export interface Settings {
   printxIgnoredEventIds: string[]
   /** Migration: strip manual printx-resolve txs; pots come from PrintX settle:* only. */
   printxAutoSettleV2?: boolean
+  /** IANA timezone id (e.g. America/Chicago). */
+  timezone: string
+  timezoneSource: TimezoneSource
+  allowanceAuto: AllowanceAuto
+  subscriptions: Subscription[]
+  reminders: ReminderSettings
+  /** Browser PushSubscription JSON for Worker web push. */
+  pushSubscription: PushSubscriptionJSON | null
+  /** e.g. 2026-W44 — last weekly-review notification key. */
+  lastWeeklyReviewNotifiedKey: string | null
+  /** Last subscription skipped for insufficient Spending. */
+  lastRecurringSkip: RecurringSkipNotice | null
 }
 
 export interface AppState {
@@ -219,6 +351,21 @@ export const DEFAULT_SETTINGS: Settings = {
   printxResolveUndo: null,
   printxIgnoredEventIds: [],
   printxAutoSettleV2: true,
+  timezone: '',
+  timezoneSource: 'unset',
+  allowanceAuto: { enabled: false, weekday: 1 },
+  subscriptions: [],
+  reminders: {
+    webPushEnabled: false,
+    notifyAllowance: true,
+    notifySubscriptionFail: true,
+    notifyAppleMismatch: true,
+    notifyWeeklyReview: true,
+    weeklyReviewWeekday: 0,
+  },
+  pushSubscription: null,
+  lastWeeklyReviewNotifiedKey: null,
+  lastRecurringSkip: null,
 }
 
 /** Normalize legacy goalCents-only saves into activeGoal. */
@@ -272,6 +419,12 @@ export function createEmptyState(): AppState {
       importedEventIds: [],
       celebratedMilestones: [],
       printxIgnoredEventIds: [],
+      allowanceAuto: { ...DEFAULT_SETTINGS.allowanceAuto },
+      subscriptions: [],
+      reminders: { ...DEFAULT_SETTINGS.reminders },
+      pushSubscription: null,
+      lastWeeklyReviewNotifiedKey: null,
+      lastRecurringSkip: null,
     },
     transactions: [],
   }
