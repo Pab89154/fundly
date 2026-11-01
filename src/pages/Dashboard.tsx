@@ -28,7 +28,6 @@ import {
   businessEarningsCents,
   estimateGoalDate,
   printxEarningsCents,
-  weekNumber,
 } from '../lib/balances'
 import { mondayOfISOWeek, weekStats } from '../lib/recurring'
 import { addDaysISO, zonedDateISO } from '../lib/timezone'
@@ -119,13 +118,7 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <header className="animate-in">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Dashboard</h2>
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--green)]">
-            <CalendarDays size={14} aria-hidden />
-            Week {weekNumber()}
-          </p>
-        </div>
+        <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Dashboard</h2>
         <p className="mt-1.5 max-w-2xl text-sm text-[var(--muted)]">
           {active ? `Working toward ${name}.` : 'Set a goal in Settings to track progress.'}
         </p>
