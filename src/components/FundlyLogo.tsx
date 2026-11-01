@@ -1,3 +1,5 @@
+import { publicUrl } from '../lib/publicUrl'
+
 /** Fundly brand mark — piggy bank + neon green coin. */
 
 type Props = {
@@ -17,7 +19,7 @@ export function FundlyLogo({
   if (useRaster) {
     return (
       <img
-        src="/fundly-logo.png?v=2"
+        src={`${publicUrl('fundly-logo.png')}?v=3`}
         width={size}
         height={size}
         alt={title}
