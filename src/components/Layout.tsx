@@ -41,10 +41,10 @@ export function Layout() {
     : 'Set a goal in Settings'
 
   return (
-    <div className="app-bg min-h-screen">
+    <div className="app-bg flex min-h-dvh w-full flex-col">
       <CelebrationModal />
-      <div className="mx-auto flex min-h-screen max-w-7xl">
-        <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[var(--border)] p-4 lg:flex">
+      <div className="flex min-h-dvh w-full flex-1">
+        <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)]/40 p-4 lg:flex">
           <div className="mb-8 px-2">
             <FundlyLogo size={56} useRaster className="mb-3" />
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
@@ -53,7 +53,7 @@ export function Layout() {
             <h1 className="mt-1 text-xl font-extrabold tracking-tight">Fundly</h1>
             <p className="mt-1 text-sm text-[var(--muted)]">{goalLine}</p>
           </div>
-          <nav className="flex flex-1 flex-col gap-1">
+          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
             {nav.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
@@ -85,8 +85,10 @@ export function Layout() {
           </p>
         </aside>
 
-        <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+2.75rem)] sm:px-6 lg:pb-8 lg:pt-8">
-          <Outlet />
+        <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+2.75rem)] sm:px-6 lg:px-8 lg:pb-10 lg:pt-8">
+          <div className="mx-auto w-full max-w-6xl">
+            <Outlet />
+          </div>
         </main>
       </div>
 
