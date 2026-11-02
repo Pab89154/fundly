@@ -2,7 +2,13 @@
  * Run with: npm run test:money
  * Imports money.ts only (Node ESM needs .ts extensions; balances.ts uses bare paths for Vite).
  */
-import { allocateCents, isValidAllocationPct, toCents, type AllocationCents } from './money.ts'
+import {
+  allocateCents,
+  isValidAllocationPct,
+  planSpendAcrossPots,
+  toCents,
+  type AllocationCents,
+} from './money.ts'
 import type { Transaction } from '../types.ts'
 
 function assert(cond: boolean, msg: string) {
@@ -171,6 +177,20 @@ assert(!isValidAllocationPct({ iphone: 60, spending: 20, extra: 10, charity: 11 
   assert(b.spending === 2000, 'spend-from-goal: spending unchanged')
   assert(b.extra === 1000, 'spend-from-goal: extra untouched')
   assert(b.charity === 1000, 'spend-from-goal: charity untouched')
+}
+
+// combine spend across pots
+{
+  const bal = { iphone: 6000, spending: 500, extra: 1000, charity: 1000 }
+  const plan = planSpendAcrossPots(bal, 2000, 'spending', ['extra', 'iphone'])
+  assert(plan.ok, 'combine plan ok')
+  if (plan.ok) {
+    assert(plan.slices[0]?.account === 'spending' && plan.slices[0]?.cents === 500, 'primary 5')
+    assert(plan.slices[1]?.account === 'extra' && plan.slices[1]?.cents === 1000, 'extra 10')
+    assert(plan.slices[2]?.account === 'iphone' && plan.slices[2]?.cents === 500, 'goal 5')
+  }
+  const short = planSpendAcrossPots(bal, 9000, 'spending', ['extra'])
+  assert(!short.ok, 'combine still short')
 }
 
 console.log('money.test.ts: all assertions passed')

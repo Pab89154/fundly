@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  ACCOUNT_LABELS,
   allocateCents,
   crossedMilestones,
   formatUsd,
@@ -16,11 +17,13 @@ import {
   isValidAllocationPct,
   localDateISO,
   normalizeAllocationPct,
+  planSpendAcrossPots,
   sumAllocation,
   toCents,
   type AccountId,
   type AllocationCents,
   type AllocationPct,
+  type SpendSlice,
 } from '../lib/money'
 import { computeBalances } from '../lib/balances'
 import { applyDueRecurring, logWeeklyAllowanceTx } from '../lib/recurring'
@@ -130,8 +133,10 @@ type AddSpendInput = {
   description?: string
   category?: SpendCategory | string
   appleCash?: boolean
-  /** Which pot pays — defaults to Spending Money. */
+  /** Which pot pays first — defaults to Spending Money. */
   fromAccount?: AccountId
+  /** Extra pots to pull from when the primary pot is short (combine). */
+  combineFrom?: AccountId[]
 }
 
 type TransferInput = {
@@ -161,7 +166,17 @@ type MoneyContextValue = {
   state: AppState
   balances: ReturnType<typeof computeBalances>
   addIncome: (input: AddIncomeInput) => { ok: true } | { ok: false; error: string }
-  addSpending: (input: AddSpendInput) => { ok: true } | { ok: false; error: string }
+  addSpending: (
+    input: AddSpendInput,
+  ) =>
+    | { ok: true; slices: SpendSlice[] }
+    | {
+        ok: false
+        error: string
+        shortfallCents?: number
+        availableCents?: number
+        fromAccount?: AccountId
+      }
   addTransfer: (input: TransferInput) => { ok: true } | { ok: false; error: string }
   updateTransaction: (id: string, patch: Partial<Transaction>) => { ok: true } | { ok: false; error: string }
   deleteTransaction: (id: string) => void
@@ -396,9 +411,10 @@ export function MoneyProvider({
   const printxOpenRemainingCents = Math.max(0, Number(state.settings.printxOpenOwedCents) || 0)
   const canUndoResolvePrintx = state.transactions.some(isUndoablePrintxPayout)
 
-  const pushTx = useCallback((tx: Transaction, celebrateFrom?: number) => {
+  const pushTxs = useCallback((txs: Transaction[], celebrateFrom?: number) => {
+    if (txs.length === 0) return
     setState((prev) => {
-      const nextTxs = [...prev.transactions, tx]
+      const nextTxs = [...prev.transactions, ...txs]
       const nextBalances = computeBalances(nextTxs)
       const prevIphone = celebrateFrom ?? computeBalances(prev.transactions).iphone
       const crossed = crossedMilestones(prevIphone, nextBalances.iphone, goalTargetCents(prev.settings)).filter(
@@ -420,6 +436,13 @@ export function MoneyProvider({
       }
     })
   }, [])
+
+  const pushTx = useCallback(
+    (tx: Transaction, celebrateFrom?: number) => {
+      pushTxs([tx], celebrateFrom)
+    },
+    [pushTxs],
+  )
 
   const addIncome = useCallback(
     (input: AddIncomeInput) => {
@@ -450,35 +473,54 @@ export function MoneyProvider({
       if (!(cents > 0)) return { ok: false as const, error: 'Enter an amount greater than $0.' }
       const from = input.fromAccount ?? 'spending'
       const bal = computeBalances(state.transactions)
-      const available = bal[from]
-      const potLabel =
-        from === 'iphone'
-          ? 'Goal'
-          : from === 'spending'
-            ? 'Spending'
-            : from === 'extra'
-              ? 'Extra'
-              : 'Charity'
-      if (cents > available) {
+      const helpers = (input.combineFrom || []).filter((a) => a !== from)
+      const plan = planSpendAcrossPots(bal, cents, from, helpers)
+      if (!plan.ok) {
+        const potLabel = ACCOUNT_LABELS[from]
+        if (helpers.length === 0) {
+          return {
+            ok: false as const,
+            error: `Not enough in ${potLabel}. Available: $${fromCents(bal[from]).toFixed(2)}.`,
+            shortfallCents: plan.shortfallCents,
+            availableCents: bal[from],
+            fromAccount: from,
+          }
+        }
         return {
           ok: false as const,
-          error: `Not enough in ${potLabel}. Available: $${fromCents(available).toFixed(2)}.`,
+          error: `Still short $${fromCents(plan.shortfallCents).toFixed(2)} after combining pots.`,
+          shortfallCents: plan.shortfallCents,
+          availableCents: bal[from],
+          fromAccount: from,
         }
       }
-      const tx: Transaction = {
+
+      const combineId = plan.slices.length > 1 ? newId() : undefined
+      const now = new Date().toISOString()
+      const date = input.date || localDateISO()
+      const description = input.description?.trim() || undefined
+      const category = input.appleCash ? 'apple_cash' : input.category || 'other'
+      const type = input.appleCash ? 'apple_cash_purchase' : 'spending'
+      const txs: Transaction[] = plan.slices.map((slice, i) => ({
         id: newId(),
-        type: input.appleCash ? 'apple_cash_purchase' : 'spending',
-        amountCents: cents,
-        date: input.date || localDateISO(),
-        description: input.description?.trim() || undefined,
-        category: input.appleCash ? 'apple_cash' : input.category || 'other',
-        fromAccount: from === 'spending' ? undefined : from,
-        createdAt: new Date().toISOString(),
-      }
-      pushTx(tx)
-      return { ok: true as const }
+        type,
+        amountCents: slice.cents,
+        date,
+        description:
+          plan.slices.length > 1
+            ? `${description || 'Purchase'} (${ACCOUNT_LABELS[slice.account]} part)`
+            : description,
+        category,
+        fromAccount: slice.account === 'spending' ? undefined : slice.account,
+        tags: combineId
+          ? ['combine', `combine:${combineId}`, i === 0 ? 'combine-primary' : 'combine-part']
+          : undefined,
+        createdAt: now,
+      }))
+      pushTxs(txs)
+      return { ok: true as const, slices: plan.slices }
     },
-    [pushTx, state.transactions],
+    [pushTxs, state.transactions],
   )
 
   const addTransfer = useCallback(

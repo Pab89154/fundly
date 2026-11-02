@@ -2,6 +2,51 @@
 
 export type AccountId = 'iphone' | 'spending' | 'extra' | 'charity'
 
+export const ACCOUNT_LABELS: Record<AccountId, string> = {
+  iphone: 'Goal',
+  spending: 'Spending',
+  extra: 'Extra',
+  charity: 'Charity',
+}
+
+export type SpendSlice = { account: AccountId; cents: number }
+
+/** Drain `primary` first, then `helpers` in order, until `amountCents` is covered. */
+export function planSpendAcrossPots(
+  balances: Record<AccountId, number>,
+  amountCents: number,
+  primary: AccountId,
+  helpers: AccountId[],
+):
+  | { ok: true; slices: SpendSlice[] }
+  | { ok: false; shortfallCents: number; slices: SpendSlice[] } {
+  const amount = Math.trunc(amountCents)
+  if (!(amount > 0)) return { ok: false, shortfallCents: 0, slices: [] }
+
+  const remainingBal: Record<AccountId, number> = {
+    iphone: Math.max(0, Math.trunc(balances.iphone || 0)),
+    spending: Math.max(0, Math.trunc(balances.spending || 0)),
+    extra: Math.max(0, Math.trunc(balances.extra || 0)),
+    charity: Math.max(0, Math.trunc(balances.charity || 0)),
+  }
+
+  const order = [primary, ...helpers.filter((a) => a !== primary)]
+  const slices: SpendSlice[] = []
+  let left = amount
+
+  for (const account of order) {
+    if (left <= 0) break
+    const take = Math.min(left, remainingBal[account])
+    if (take <= 0) continue
+    slices.push({ account, cents: take })
+    remainingBal[account] -= take
+    left -= take
+  }
+
+  if (left > 0) return { ok: false, shortfallCents: left, slices }
+  return { ok: true, slices }
+}
+
 export type AllocationPct = {
   iphone: number
   spending: number
