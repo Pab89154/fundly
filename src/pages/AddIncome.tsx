@@ -12,12 +12,12 @@ export function AddIncome() {
   const [params] = useSearchParams()
 
   const incomeSources = useMemo(() => {
+    // Businesses already include PrintX — don't prepend a second PrintX row.
     const businesses = state.settings.businesses.map((b) => ({
       value: b.id,
       label: b.name,
     }))
     return [
-      { value: 'printx', label: 'PrintX' },
       ...businesses,
       { value: 'allowance', label: 'Allowance' },
       { value: 'other', label: 'Other' },
@@ -46,6 +46,8 @@ export function AddIncome() {
   const cents = toCents(Number(amount) || 0)
   const preview = allocateCents(cents, state.settings.allocation)
   const selectedBusiness = state.settings.businesses.find((b) => b.id === source)
+  const isPrintxSource =
+    source === 'printx' || selectedBusiness?.kind === 'printx' || selectedBusiness?.id === 'printx'
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -56,7 +58,7 @@ export function AddIncome() {
       source,
       date,
       description,
-      printxSource: source === 'printx' ? printxSource : undefined,
+      printxSource: isPrintxSource ? printxSource : undefined,
     })
     if (!res.ok) {
       setError(res.error)
@@ -125,7 +127,7 @@ export function AddIncome() {
             options={incomeSources}
           />
         </div>
-        {source === 'printx' ? (
+        {isPrintxSource ? (
           <div>
             <label className="label">PrintX pay type</label>
             <NativeSelect
@@ -172,7 +174,7 @@ export function AddIncome() {
                 ? 'Gift, refund, chore money…'
                 : selectedBusiness
                   ? `${selectedBusiness.name} sale`
-                  : source === 'printx'
+                  : isPrintxSource
                     ? 'Weekly PrintX sales'
                     : 'What was this for?'
             }

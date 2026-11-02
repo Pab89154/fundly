@@ -16,12 +16,12 @@ function publicAsset(name: string): string {
 
 /** Default PrintX mark when no custom logo is set. */
 export function defaultPrintxLogoUrl(): string {
-  return publicAsset('printx-logo.svg')
+  return `${publicAsset('printx-logo.svg')}?v=2`
 }
 
-/** Default NFC Bracelets mark (Fundly-styled cast/signal icon). */
+/** Default NFC Bracelets mark (transparent cast/signal icon). */
 export function defaultNfcLogoUrl(): string {
-  return publicAsset('nfc-logo.svg')
+  return `${publicAsset('nfc-logo.svg')}?v=2`
 }
 
 export function resolveBusinessLogoUrl(b: {

@@ -31,7 +31,7 @@ export function BusinessLogo({ business, size = 20, className = '' }: Props) {
           alt=""
           width={size}
           height={size}
-          className="block h-full w-full object-cover"
+          className="block h-full w-full object-contain"
           draggable={false}
         />
       </span>
