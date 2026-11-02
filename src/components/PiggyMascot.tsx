@@ -1,9 +1,27 @@
-import type { CSSProperties } from 'react'
-import { CircleDollarSign, Crown, Glasses, Ribbon, Shirt } from 'lucide-react'
+import type { CSSProperties, ComponentType } from 'react'
+import {
+  CircleDollarSign,
+  Crown,
+  Glasses,
+  Shield,
+  Sparkles,
+  type LucideProps,
+} from 'lucide-react'
 import { FundlyLogo } from './FundlyLogo'
 
 export type PiggyExpression = 'sleepy' | 'happy' | 'excited' | 'crowned'
 export type PiggyAccessory = 'bandana' | 'glasses' | 'coin' | 'cape' | 'crown'
+
+const ACCESSORY_META: Record<
+  PiggyAccessory,
+  { Icon: ComponentType<LucideProps>; label: string }
+> = {
+  bandana: { Icon: Sparkles, label: 'First unlock' },
+  glasses: { Icon: Glasses, label: 'Sharp eyes' },
+  coin: { Icon: CircleDollarSign, label: 'Coin sense' },
+  cape: { Icon: Shield, label: 'Saver shield' },
+  crown: { Icon: Crown, label: 'Goal crown' },
+}
 
 export function piggyStageFromProgress(ratio: number, unlockedCount: number, total: number): {
   expression: PiggyExpression
@@ -24,7 +42,7 @@ export function piggyStageFromProgress(ratio: number, unlockedCount: number, tot
   return { expression: 'sleepy', accessories }
 }
 
-/** Brand piggy from Fundly logo + Lucide accessories (no hand-drawn SVG paths). */
+/** Brand piggy (Fundly logo) + Lucide badge chips — never overlay the logo art. */
 export function PiggyMascot({
   expression = 'happy',
   accessories = [],
@@ -43,68 +61,50 @@ export function PiggyMascot({
   style?: CSSProperties
 }) {
   const has = (a: PiggyAccessory) => accessories.includes(a) || (expression === 'crowned' && a === 'crown')
-  const badge = Math.max(14, Math.round(size * 0.28))
+  const shown = (Object.keys(ACCESSORY_META) as PiggyAccessory[]).filter((a) => has(a))
+  const chip = Math.max(12, Math.round(size * 0.22))
 
   const moodScale =
     expression === 'sleepy' ? 0.94 : expression === 'excited' || celebrating || finale ? 1.04 : 1
 
   const pig = (
     <div
-      className={`relative inline-flex items-center justify-center ${finale ? '' : className}`}
-      style={{
-        width: size,
-        height: size,
-        ...(finale
+      className={`inline-flex flex-col items-center gap-1.5 ${finale ? '' : className}`}
+      style={
+        finale
           ? undefined
           : {
               ...style,
               transform: `translateY(${celebrating ? -2 : 0}px) scale(${moodScale})`,
               opacity: expression === 'sleepy' ? 0.88 : 1,
               transition: 'transform 0.35s ease, opacity 0.35s ease',
-            }),
-      }}
+            }
+      }
       aria-hidden
     >
-      <FundlyLogo size={size} useRaster className="rounded-[22%]" title="Fundly piggy" />
-      {has('bandana') ? (
-        <Ribbon
-          size={badge}
-          className="absolute -left-0.5 top-[18%] text-[var(--green)] drop-shadow"
-          aria-hidden
-          strokeWidth={2.2}
-        />
-      ) : null}
-      {has('glasses') ? (
-        <Glasses
-          size={badge}
-          className="absolute left-1/2 top-[32%] -translate-x-1/2 text-white drop-shadow"
-          aria-hidden
-          strokeWidth={2.2}
-        />
-      ) : null}
-      {has('coin') ? (
-        <CircleDollarSign
-          size={badge}
-          className="absolute -right-1 bottom-[18%] text-[var(--green)] drop-shadow"
-          aria-hidden
-          strokeWidth={2.2}
-        />
-      ) : null}
-      {has('cape') ? (
-        <Shirt
-          size={badge}
-          className="absolute -left-1 bottom-[12%] text-[var(--green)]/80 drop-shadow"
-          aria-hidden
-          strokeWidth={2.2}
-        />
-      ) : null}
-      {has('crown') || expression === 'crowned' ? (
-        <Crown
-          size={badge + 2}
-          className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/4 text-[var(--green)] drop-shadow"
-          aria-hidden
-          strokeWidth={2.2}
-        />
+      <div className="relative" style={{ width: size, height: size }}>
+        <FundlyLogo size={size} useRaster className="rounded-[22%]" title="Fundly piggy" />
+        {has('crown') ? (
+          <span className="absolute -top-1 left-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[var(--green)]/40 bg-[var(--card)] p-0.5 text-[var(--green)] shadow">
+            <Crown size={chip + 2} strokeWidth={2.2} aria-hidden />
+          </span>
+        ) : null}
+      </div>
+      {shown.length > 0 ? (
+        <ul className="flex max-w-[min(100%,11rem)] flex-wrap items-center justify-center gap-1">
+          {shown.map((key) => {
+            const { Icon, label } = ACCESSORY_META[key]
+            return (
+              <li
+                key={key}
+                title={label}
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-[var(--green)]/35 bg-[var(--card-2)] text-[var(--green)]"
+              >
+                <Icon size={chip} strokeWidth={2.2} aria-hidden />
+              </li>
+            )
+          })}
+        </ul>
       ) : null}
     </div>
   )
@@ -114,7 +114,7 @@ export function PiggyMascot({
   return (
     <div
       className={`piggy-finale-stage ${className}`}
-      style={{ width: size * 1.55, height: size * 1.55, ...style }}
+      style={{ width: size * 1.7, height: size * 1.85, ...style }}
       aria-hidden
     >
       <span className="piggy-finale-ring" />
