@@ -37,7 +37,9 @@ export function computeBalances(transactions: Transaction[]): Balances {
       }
       case 'spending':
       case 'apple_cash_purchase': {
-        spending -= Math.abs(tx.amountCents)
+        // Default pot is Spending; optional fromAccount lets a purchase pull Goal/Extra/Charity.
+        const from = tx.fromAccount ?? 'spending'
+        add(from, -Math.abs(tx.amountCents))
         break
       }
       case 'transfer': {

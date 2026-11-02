@@ -32,7 +32,12 @@ function balancesOf(transactions: Transaction[]) {
         charity += a.charity ?? 0
       }
     } else if (tx.type === 'spending' || tx.type === 'apple_cash_purchase') {
-      spending -= Math.abs(tx.amountCents)
+      const amt = Math.abs(tx.amountCents)
+      const from = tx.fromAccount ?? 'spending'
+      if (from === 'iphone') iphone -= amt
+      else if (from === 'extra') extra -= amt
+      else if (from === 'charity') charity -= amt
+      else spending -= amt
     } else if (tx.type === 'transfer') {
       const amt = Math.abs(tx.amountCents)
       if (tx.fromAccount === 'iphone') iphone -= amt
@@ -137,6 +142,35 @@ assert(!isValidAllocationPct({ iphone: 60, spending: 20, extra: 10, charity: 11 
   assert(after.spending === before.spending, 'transfer: spending unchanged')
   assert(after.charity === before.charity, 'transfer: charity unchanged')
   assert(after.combined === before.combined, 'transfer: combined unchanged')
+}
+
+// spend from Goal pot — Spending balance unchanged
+{
+  const incomeAlloc = allocateCents(toCents(100), SPLIT)
+  const txs: Transaction[] = [
+    {
+      id: '1',
+      type: 'income',
+      amountCents: 10_000,
+      date: '2026-01-01',
+      source: 'allowance',
+      allocation: incomeAlloc,
+      createdAt: '',
+    },
+    {
+      id: '2',
+      type: 'spending',
+      amountCents: toCents(10),
+      date: '2026-01-04',
+      fromAccount: 'iphone',
+      createdAt: '',
+    },
+  ]
+  const b = balancesOf(txs)
+  assert(b.iphone === 6000 - 1000, 'spend-from-goal: goal -10')
+  assert(b.spending === 2000, 'spend-from-goal: spending unchanged')
+  assert(b.extra === 1000, 'spend-from-goal: extra untouched')
+  assert(b.charity === 1000, 'spend-from-goal: charity untouched')
 }
 
 console.log('money.test.ts: all assertions passed')

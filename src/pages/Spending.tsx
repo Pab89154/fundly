@@ -1,20 +1,31 @@
 import { useState } from 'react'
 import { ShoppingBag } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd, localDateISO } from '../lib/money'
+import { formatUsd, localDateISO, type AccountId } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import type { SpendCategory } from '../types'
 
 const categories: SpendCategory[] = ['food', 'games', 'apps', 'school', 'transport', 'other']
+
+const POTS: { id: AccountId; label: string }[] = [
+  { id: 'spending', label: 'Spending Money' },
+  { id: 'iphone', label: 'Goal' },
+  { id: 'extra', label: 'Extra Savings' },
+  { id: 'charity', label: 'Charity' },
+]
 
 export function Spending() {
   const { addSpending, balances } = useMoney()
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<SpendCategory>('other')
+  const [fromAccount, setFromAccount] = useState<AccountId>('spending')
   const [date, setDate] = useState(localDateISO)
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
+
+  const fromBal = balances[fromAccount]
+  const fromLabel = POTS.find((p) => p.id === fromAccount)?.label ?? 'selected pot'
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,12 +36,13 @@ export function Spending() {
       date,
       description,
       category,
+      fromAccount,
     })
     if (!res.ok) {
       setError(res.error)
       return
     }
-    setOk('Purchase recorded from Spending Money only.')
+    setOk(`Purchase recorded from ${fromLabel}.`)
     setAmount('')
     setDescription('')
   }
@@ -43,21 +55,40 @@ export function Spending() {
           Spending
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Takes from Spending Money only — Goal, Extra, and Charity never drop when you buy
-          something.
+          Record a purchase and choose which pot pays. Spending Money left stays visible so you know
+          your everyday balance.
         </p>
       </header>
 
       <div className="card p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Remaining spending money
+          Spending money left
         </p>
         <p className="mt-2 text-3xl font-extrabold text-[var(--blue)]">
           {formatUsd(balances.spending)}
         </p>
+        {fromAccount !== 'spending' ? (
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Paying from {fromLabel}: {formatUsd(fromBal)} available
+          </p>
+        ) : null}
       </div>
 
       <form className="card space-y-4 p-5" onSubmit={onSubmit}>
+        <div>
+          <label className="label" htmlFor="from">
+            Pay from
+          </label>
+          <NativeSelect
+            aria-label="Pay from"
+            value={fromAccount}
+            onChange={(v) => setFromAccount(v as AccountId)}
+            options={POTS.map((p) => ({
+              value: p.id,
+              label: `${p.label} (${formatUsd(balances[p.id])})`,
+            }))}
+          />
+        </div>
         <div>
           <label className="label" htmlFor="amount">
             Amount

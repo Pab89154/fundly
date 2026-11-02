@@ -130,6 +130,8 @@ type AddSpendInput = {
   description?: string
   category?: SpendCategory | string
   appleCash?: boolean
+  /** Which pot pays — defaults to Spending Money. */
+  fromAccount?: AccountId
 }
 
 type TransferInput = {
@@ -446,11 +448,21 @@ export function MoneyProvider({
     (input: AddSpendInput) => {
       const cents = toCents(input.amountUsd)
       if (!(cents > 0)) return { ok: false as const, error: 'Enter an amount greater than $0.' }
+      const from = input.fromAccount ?? 'spending'
       const bal = computeBalances(state.transactions)
-      if (cents > bal.spending) {
+      const available = bal[from]
+      const potLabel =
+        from === 'iphone'
+          ? 'Goal'
+          : from === 'spending'
+            ? 'Spending'
+            : from === 'extra'
+              ? 'Extra'
+              : 'Charity'
+      if (cents > available) {
         return {
           ok: false as const,
-          error: `Not enough spending money. Available: $${fromCents(bal.spending).toFixed(2)}.`,
+          error: `Not enough in ${potLabel}. Available: $${fromCents(available).toFixed(2)}.`,
         }
       }
       const tx: Transaction = {
@@ -460,6 +472,7 @@ export function MoneyProvider({
         date: input.date || localDateISO(),
         description: input.description?.trim() || undefined,
         category: input.appleCash ? 'apple_cash' : input.category || 'other',
+        fromAccount: from === 'spending' ? undefined : from,
         createdAt: new Date().toISOString(),
       }
       pushTx(tx)
@@ -531,8 +544,9 @@ export function MoneyProvider({
         if (next.type === 'spending' || next.type === 'apple_cash_purchase') {
           const others = prev.transactions.filter((t) => t.id !== id)
           const bal = computeBalances(others)
-          if (Math.abs(next.amountCents) > bal.spending) {
-            error = `Not enough spending money. Available: $${fromCents(bal.spending).toFixed(2)}.`
+          const from = next.fromAccount ?? 'spending'
+          if (Math.abs(next.amountCents) > bal[from]) {
+            error = `Not enough in that pot. Available: $${fromCents(bal[from]).toFixed(2)}.`
             return prev
           }
         }
