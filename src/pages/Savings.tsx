@@ -2,30 +2,39 @@ import { useMemo, useState } from 'react'
 import {
   ArrowRightLeft,
   CheckCircle2,
+  Flame,
   Gift,
   Heart,
   Lock,
   Smartphone,
   Store,
+  Trophy,
   Wallet,
   PiggyBank,
+  Zap,
 } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import {
   formatTxUsd,
   formatUsd,
   localDateISO,
-  milestoneLabel,
-  milestoneProgress,
-  milestoneTreat,
-  milestonesForTarget,
-  nextMilestone,
   weeksToMilestone,
   type AccountId,
 } from '../lib/money'
+import {
+  milestonesForGoal,
+  milestoneProgressToward,
+  nextGoalMilestone,
+} from '../lib/milestones'
+import {
+  printxPersonalBestWeeklyCents,
+  savingsStreakWeeks,
+} from '../lib/gamification'
 import { printxUnsettledCents } from '../lib/balances'
 import { NativeSelect } from '../components/NativeSelect'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { MilestoneIcon } from '../components/milestoneIcons'
+import { PiggyMascot, piggyStageFromProgress } from '../components/PiggyMascot'
 import { goalName, goalTargetCents } from '../types'
 
 export function Savings() {
@@ -36,6 +45,7 @@ export function Savings() {
     settlePrintxTransaction,
     settleAllPrintxPending,
     rebalanceToAllocation,
+    celebration,
   } = useMoney()
   const [from, setFrom] = useState<AccountId>('extra')
   const [to, setTo] = useState<AccountId>('iphone')
@@ -79,7 +89,27 @@ export function Savings() {
 
   const gName = goalName(state.settings)
   const gTarget = goalTargetCents(state.settings)
-  const milestoneList = milestonesForTarget(gTarget)
+  const milestoneList = milestonesForGoal(state.settings.activeGoal)
+  const nextMs = nextGoalMilestone(balances.iphone, milestoneList)
+  const unlockedCount = milestoneList.filter((m) => balances.iphone >= m.cents).length
+  const piggy = piggyStageFromProgress(
+    gTarget > 0 ? balances.iphone / gTarget : 0,
+    unlockedCount,
+    milestoneList.length,
+  )
+  const celebrating = celebration != null
+  const streak = savingsStreakWeeks(
+    state.transactions,
+    state.settings.timezone || 'America/Chicago',
+  )
+  const printxPb = printxPersonalBestWeeklyCents(
+    state.transactions,
+    state.settings.timezone || 'America/Chicago',
+  )
+  const xpTotal = Math.max(0, Math.trunc(state.settings.xpTotal || 0))
+  const historyById = new Map(
+    (state.settings.achievementHistory || []).map((h) => [h.milestoneId, h]),
+  )
   const weeklyGoalIn = Math.floor(
     ((state.settings.weeklyAllowanceCents + state.settings.expectedPrintxWeeklyCents) *
       state.settings.allocation.iphone) /
@@ -278,61 +308,85 @@ export function Savings() {
       </section>
 
       <section className="card p-5">
-        <h3 className="text-lg font-bold">Milestone roadmap</h3>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Checkpoints on the way to {gName}. Edit titles and treats in Settings.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold">Milestone roadmap</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Checkpoints on the way to {gName}. Edit titles, amounts, and icons in Settings.
+            </p>
+          </div>
+          {milestoneList.length > 0 ? (
+            <PiggyMascot
+              expression={piggy.expression}
+              accessories={piggy.accessories}
+              celebrating={celebrating}
+              size={64}
+            />
+          ) : null}
+        </div>
         {milestoneList.length === 0 ? (
           <p className="mt-4 text-sm text-[var(--muted)]">
             Create a goal in Settings to unlock milestones.
           </p>
         ) : (
-          <ol className="relative mt-6 space-y-0 border-l border-[var(--border)] pl-5">
+          <ol className="relative mt-6 space-y-0 border-l-2 border-[var(--green)]/35 pl-5">
             {milestoneList.map((m) => {
-              const hit = balances.iphone >= m
-              const isNext = nextMilestone(balances.iphone, gTarget) === m
-              const title = milestoneLabel(m, {
-                targetCents: gTarget,
-                goalName: gName,
-                milestoneMeta: state.settings.activeGoal?.milestoneMeta,
-              })
-              const treat = milestoneTreat(m, state.settings.activeGoal?.milestoneMeta)
-              const toGo = Math.max(0, m - balances.iphone)
+              const hit = balances.iphone >= m.cents
+              const isNext = nextMs?.id === m.id
+              const treat = m.treat
+              const toGo = Math.max(0, m.cents - balances.iphone)
               const pct = isNext
-                ? Math.round(milestoneProgress(balances.iphone, m, gTarget) * 1000) / 10
+                ? Math.round(milestoneProgressToward(balances.iphone, m, milestoneList) * 1000) / 10
                 : hit
                   ? 100
                   : 0
               return (
-                <li key={m} className="relative pb-6 last:pb-0">
+                <li key={m.id} className="relative pb-6 last:pb-0">
                   <span
-                    className={`absolute -left-[1.55rem] top-0.5 flex h-6 w-6 items-center justify-center rounded-full border ${
+                    className={`absolute -left-[1.6rem] top-0.5 flex h-7 w-7 items-center justify-center rounded-full border-2 ${
                       hit
                         ? 'border-[var(--green)] bg-[var(--green)]/20 text-[var(--green)]'
                         : isNext
-                          ? 'border-[var(--green)] bg-[var(--card)] text-[var(--green)]'
+                          ? 'milestone-next-glow border-[var(--green)] bg-[var(--card)] text-[var(--green)]'
                           : 'border-[var(--border)] bg-[var(--card-2)] text-[var(--muted)]'
                     }`}
                   >
                     {hit ? (
                       <CheckCircle2 size={14} aria-hidden />
                     ) : (
-                      <Lock size={12} aria-hidden />
+                      <MilestoneIcon
+                        name={m.icon}
+                        size="sm"
+                        className={isNext ? 'text-[var(--green)]' : 'text-[var(--muted)]'}
+                      />
                     )}
                   </span>
                   <div
                     className={`rounded-xl border p-4 ${
                       isNext
-                        ? 'border-[var(--green)]/50 bg-[var(--green)]/10'
+                        ? 'border-[var(--green)]/60 bg-[var(--green)]/10 shadow-[0_0_20px_rgba(48,209,88,0.18)]'
                         : hit
                           ? 'border-[var(--green)]/25 bg-[var(--green)]/5'
                           : 'border-[var(--border)] bg-[var(--card-2)]'
                     }`}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold">{title}</p>
-                        <p className="mt-0.5 text-sm text-[var(--muted)]">{formatUsd(m)}</p>
+                      <div className="flex items-start gap-2">
+                        <MilestoneIcon
+                          name={m.icon}
+                          size="md"
+                          className={
+                            hit
+                              ? 'text-[var(--green)]'
+                              : isNext
+                                ? 'text-[var(--green)]'
+                                : 'text-[var(--muted)]'
+                          }
+                        />
+                        <div>
+                          <p className="font-semibold">{m.title}</p>
+                          <p className="mt-0.5 text-sm text-[var(--muted)]">{formatUsd(m.cents)}</p>
+                        </div>
                       </div>
                       {isNext ? (
                         <span className="rounded-full bg-[var(--green)]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--green)]">
@@ -359,8 +413,11 @@ export function Savings() {
                             return w != null ? ` · ~${w} wk` : ''
                           })()}
                         </p>
-                        <div className="progress-track mt-2">
-                          <div className="progress-fill" style={{ width: `${pct}%` }} />
+                        <div className="progress-track mt-2 overflow-hidden">
+                          <div
+                            className="progress-fill milestone-progress-anim"
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
                       </>
                     ) : null}
@@ -370,6 +427,79 @@ export function Savings() {
             })}
           </ol>
         )}
+      </section>
+
+      {milestoneList.length > 0 ? (
+        <section className="card space-y-4 p-5">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+              <Trophy size={18} className="text-[var(--orange)]" aria-hidden />
+              Achievement gallery
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Badges unlock with your Goal pot — history stays even if you edit amounts.
+            </p>
+          </div>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {milestoneList.map((m) => {
+              const rec = historyById.get(m.id)
+              const unlocked = Boolean(rec) || balances.iphone >= m.cents
+              return (
+                <li
+                  key={m.id}
+                  className={`rounded-xl border p-3 ${
+                    unlocked
+                      ? 'border-[var(--green)]/35 bg-[var(--green)]/10'
+                      : 'border-[var(--border)] bg-[var(--card-2)] opacity-60 grayscale'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-[var(--green)]">
+                    <MilestoneIcon name={m.icon} size="md" />
+                    {unlocked ? <CheckCircle2 size={14} /> : <Lock size={14} className="text-[var(--muted)]" />}
+                  </div>
+                  <p className="mt-2 text-sm font-semibold leading-snug">
+                    {rec?.titleAtUnlock || m.title}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {formatUsd(rec?.centsAtUnlock ?? m.cents)}
+                    {rec?.unlockedAt && rec.unlockedAt !== new Date(0).toISOString()
+                      ? ` · ${rec.unlockedAt.slice(0, 10)}`
+                      : unlocked
+                        ? ' · unlocked'
+                        : ' · locked'}
+                  </p>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="card p-5">
+        <h3 className="text-lg font-bold">Habit stats</h3>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">
+            <Flame size={16} className="mx-auto text-[var(--orange)]" aria-hidden />
+            <p className="mt-2 text-xl font-extrabold">{streak}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+              Week streak
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">
+            <Store size={16} className="mx-auto text-[var(--blue)]" aria-hidden />
+            <p className="mt-2 text-xl font-extrabold">{formatUsd(printxPb)}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+              PrintX best week
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">
+            <Zap size={16} className="mx-auto text-[var(--green)]" aria-hidden />
+            <p className="mt-2 text-xl font-extrabold">{xpTotal}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+              XP
+            </p>
+          </div>
+        </div>
       </section>
 
       <form className="card space-y-4 p-5" onSubmit={onTransfer}>

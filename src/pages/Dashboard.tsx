@@ -23,16 +23,14 @@ import {
   YAxis,
 } from 'recharts'
 import { useMoney } from '../store/MoneyContext'
+import { formatSignedUsd, formatUsd, fromCents, weeksToMilestone } from '../lib/money'
 import {
-  formatSignedUsd,
-  formatUsd,
-  fromCents,
-  milestoneLabel,
-  milestoneProgress,
-  milestoneTreat,
-  nextMilestone,
-  weeksToMilestone,
-} from '../lib/money'
+  milestonesForGoal,
+  milestoneProgressToward,
+  nextGoalMilestone,
+} from '../lib/milestones'
+import { PiggyMascot, piggyStageFromProgress } from '../components/PiggyMascot'
+import { printxPersonalBestWeeklyCents, savingsStreakWeeks } from '../lib/gamification'
 import {
   allowanceTotalCents,
   businessEarningsCents,
@@ -64,19 +62,15 @@ export function Dashboard() {
     iphonePct: state.settings.allocation.iphone,
   })
 
-  const nextMs = goal > 0 ? nextMilestone(saved, goal) : null
-  const nextTitle =
-    nextMs != null
-      ? milestoneLabel(nextMs, {
-          targetCents: goal,
-          goalName: name,
-          milestoneMeta: active?.milestoneMeta,
-        })
-      : null
-  const nextTreat = nextMs != null ? milestoneTreat(nextMs, active?.milestoneMeta) : undefined
-  const nextRemain = nextMs != null ? Math.max(0, nextMs - saved) : 0
+  const milestoneList = milestonesForGoal(active)
+  const nextMs = nextGoalMilestone(saved, milestoneList)
+  const nextTitle = nextMs?.title ?? null
+  const nextTreat = nextMs?.treat
+  const nextRemain = nextMs != null ? Math.max(0, nextMs.cents - saved) : 0
   const nextPct =
-    nextMs != null ? Math.round(milestoneProgress(saved, nextMs, goal) * 1000) / 10 : 0
+    nextMs != null
+      ? Math.round(milestoneProgressToward(saved, nextMs, milestoneList) * 1000) / 10
+      : 0
   const weeklyGoalIn =
     Math.floor(
       ((state.settings.weeklyAllowanceCents + state.settings.expectedPrintxWeeklyCents) *
@@ -84,6 +78,18 @@ export function Dashboard() {
         100,
     )
   const weeksNext = nextMs != null ? weeksToMilestone(nextRemain, weeklyGoalIn) : null
+  const unlockedCount = milestoneList.filter((m) => saved >= m.cents).length
+  const piggy = piggyStageFromProgress(
+    goal > 0 ? saved / goal : 0,
+    unlockedCount,
+    milestoneList.length,
+  )
+  const streak = savingsStreakWeeks(state.transactions, state.settings.timezone || 'America/Chicago')
+  const printxPb = printxPersonalBestWeeklyCents(
+    state.transactions,
+    state.settings.timezone || 'America/Chicago',
+  )
+  const xpTotal = Math.max(0, Math.trunc(state.settings.xpTotal || 0))
 
   const apple = state.settings.appleCashConfirmedCents
   const appleDiff = apple == null ? null : balances.combined - apple
@@ -254,22 +260,34 @@ export function Dashboard() {
           className="card block space-y-3 border-[var(--green)]/30 p-5 transition hover:border-[var(--green)]"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--green)]">
-                <Trophy size={14} aria-hidden />
-                {nextMs == null ? 'All milestones done' : 'Next milestone'}
-              </p>
-              <p className="mt-1 text-xl font-extrabold">
-                {nextMs == null ? `${name} unlocked!` : nextTitle}
-              </p>
-              {nextMs != null ? (
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  {formatUsd(nextRemain)} to go · {formatUsd(nextMs)}
-                  {weeksNext != null ? ` · ~${weeksNext} wk` : ''}
+            <div className="flex items-start gap-3">
+              <PiggyMascot
+                expression={piggy.expression}
+                accessories={piggy.accessories}
+                size={48}
+              />
+              <div>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--green)]">
+                  <Trophy size={14} aria-hidden />
+                  {nextMs == null ? 'All milestones done' : 'Next milestone'}
                 </p>
-              ) : (
-                <p className="mt-1 text-sm text-[var(--muted)]">You hit every checkpoint for this goal.</p>
-              )}
+                <p className="mt-1 text-xl font-extrabold">
+                  {nextMs == null ? `${name} unlocked!` : nextTitle}
+                </p>
+                {nextMs != null ? (
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    {formatUsd(nextRemain)} to go · {formatUsd(nextMs.cents)}
+                    {weeksNext != null ? ` · ~${weeksNext} wk` : ''}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    You hit every checkpoint for this goal.
+                  </p>
+                )}
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Streak {streak} · PrintX PB {formatUsd(printxPb)} · XP {xpTotal}
+                </p>
+              </div>
             </div>
             {nextTreat ? (
               <p className="inline-flex items-center gap-1.5 rounded-full bg-[var(--orange)]/15 px-3 py-1 text-xs font-semibold text-[var(--orange)]">

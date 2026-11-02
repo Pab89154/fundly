@@ -16,15 +16,24 @@ import {
 } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import {
-  defaultMilestoneMeta,
   defaultMilestoneTitle,
   formatUsd,
   fromCents,
+  isAutoUnlockMilestoneTitle,
   isValidAllocationPct,
   localDateISO,
-  milestonesForTarget,
   toCents,
 } from '../lib/money'
+import {
+  milestonesForGoal,
+  milestonesToMetaMap,
+  newMilestoneId,
+  resetMilestonesToFractions,
+  syncGoalMilestonesName,
+  type GoalMilestone,
+  type MilestoneIconKey,
+} from '../lib/milestones'
+import { MilestoneIcon, MILESTONE_ICON_OPTIONS } from '../components/milestoneIcons'
 import { downloadCsv, transactionsToCsv } from '../lib/csv'
 import {
   enableNotifications,
@@ -43,6 +52,7 @@ import {
   slugifyBusinessId,
   type ActiveGoal,
   type Business,
+  type ReminderSettings,
 } from '../types'
 import { defaultPrintxLogoUrl } from '../lib/businessLogo'
 import { LogoUploadPaste } from '../components/LogoUploadPaste'
@@ -73,8 +83,8 @@ export function Settings() {
     goal ? fromCents(goal.targetCents).toFixed(2) : '',
   )
   const [goalNote, setGoalNote] = useState(goal?.note ?? '')
-  const [milestoneMeta, setMilestoneMeta] = useState<Record<string, { title: string; treat?: string }>>(
-    () => goal?.milestoneMeta ?? {},
+  const [draftMilestones, setDraftMilestones] = useState<GoalMilestone[]>(() =>
+    milestonesForGoal(goal),
   )
   const [milestonesOpen, setMilestonesOpen] = useState(false)
   const [editingGoal, setEditingGoal] = useState(!goal)
@@ -107,7 +117,7 @@ export function Settings() {
     setGoalName(g?.name ?? '')
     setGoalTarget(g ? fromCents(g.targetCents).toFixed(2) : '')
     setGoalNote(g?.note ?? '')
-    setMilestoneMeta(g?.milestoneMeta ?? {})
+    setDraftMilestones(milestonesForGoal(g))
     if (!g) setEditingGoal(true)
   }, [state.settings.activeGoal])
 
@@ -116,8 +126,6 @@ export function Settings() {
   }, [])
 
   const draftTargetCents = toCents(Number(goalTarget)) || 0
-  const draftMilestoneCents =
-    draftTargetCents > 0 ? milestonesForTarget(draftTargetCents) : []
 
   const saveGoal = (e: React.FormEvent) => {
     e.preventDefault()
@@ -133,21 +141,51 @@ export function Settings() {
       setErr('Goal amount must be greater than $0.')
       return
     }
-    const defaults = defaultMilestoneMeta(targetCents, name)
-    const cleaned: Record<string, { title: string; treat?: string }> = {}
-    for (const c of milestonesForTarget(targetCents)) {
-      const key = String(c)
-      const raw = milestoneMeta[key]
-      const title = (raw?.title ?? defaults[key]?.title ?? defaultMilestoneTitle(c, targetCents, name)).trim()
-      const treat = raw?.treat?.trim()
-      cleaned[key] = treat ? { title, treat } : { title }
+    let list = draftMilestones.length
+      ? draftMilestones.map((m) => ({ ...m }))
+      : resetMilestonesToFractions(targetCents, name, goal?.milestones)
+    // Ensure final unlock title follows current name; keep custom amounts.
+    list = syncGoalMilestonesName(
+      list.map((m) => {
+        const cents = Math.max(1, Math.trunc(m.cents) || 0)
+        let title = (m.title || '').trim() || defaultMilestoneTitle(cents, targetCents, name)
+        if (isAutoUnlockMilestoneTitle(title)) title = `${name} unlocked!`
+        const treat = m.treat?.trim()
+        return {
+          id: m.id || newMilestoneId(),
+          cents,
+          title,
+          ...(treat ? { treat } : {}),
+          icon: m.icon,
+        }
+      }),
+      name,
+    )
+    // If target changed and no list, seed fractions
+    if (!list.length) list = resetMilestonesToFractions(targetCents, name, null)
+    const maxCents = Math.max(...list.map((m) => m.cents), 0)
+    if (maxCents > 0 && targetCents > 0 && maxCents !== targetCents) {
+      // Keep editable amounts; bump highest checkpoint toward new target if it was the old unlock
+      list = list.map((m) =>
+        m.cents >= maxCents
+          ? {
+              ...m,
+              cents: targetCents,
+              title: isAutoUnlockMilestoneTitle(m.title) || !m.title.trim()
+                ? `${name} unlocked!`
+                : m.title,
+            }
+          : m,
+      )
     }
+    const cleanedMeta = milestonesToMetaMap(list)
     const now = new Date().toISOString()
     const next: ActiveGoal = {
       name,
       targetCents,
       note: goalNote.trim(),
-      milestoneMeta: cleaned,
+      milestones: list,
+      milestoneMeta: cleanedMeta,
       createdAt: goal?.createdAt || now,
       updatedAt: now,
     }
@@ -156,7 +194,7 @@ export function Settings() {
       setErr(res.error)
       return
     }
-    setMilestoneMeta(cleaned)
+    setDraftMilestones(list)
     setEditingGoal(false)
     setMsg(goal ? 'Goal updated.' : 'Goal created.')
   }
@@ -171,28 +209,31 @@ export function Settings() {
     setGoalName('')
     setGoalTarget('')
     setGoalNote('')
-    setMilestoneMeta({})
+    setDraftMilestones([])
     setMilestonesOpen(false)
     setEditingGoal(true)
     setMsg('Goal deleted. You can create a new one anytime.')
   }
 
-  const updateMilestoneField = (
-    cents: number,
-    field: 'title' | 'treat',
-    value: string,
+  const updateDraftMilestone = (
+    id: string,
+    patch: Partial<Pick<GoalMilestone, 'title' | 'treat' | 'cents' | 'icon'>>,
   ) => {
-    const key = String(cents)
-    setMilestoneMeta((prev) => {
-      const cur = prev[key] ?? {
-        title: defaultMilestoneTitle(cents, draftTargetCents, goalName.trim() || 'Goal'),
-      }
-      if (field === 'treat') {
-        const treat = value.trim() ? value : undefined
-        return { ...prev, [key]: { title: cur.title, ...(treat ? { treat } : {}) } }
-      }
-      return { ...prev, [key]: { ...cur, title: value } }
-    })
+    setDraftMilestones((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m
+        const next = { ...m, ...patch }
+        if ('cents' in patch && patch.cents != null) {
+          next.cents = Math.max(1, Math.trunc(Number(patch.cents) || 0))
+        }
+        if ('treat' in patch) {
+          const t = String(patch.treat || '').trim()
+          if (t) next.treat = t
+          else delete next.treat
+        }
+        return next
+      }),
+    )
   }
 
   const startCreateBusiness = () => {
@@ -405,26 +446,21 @@ export function Settings() {
               })}
             </p>
             {goal.note ? <p className="mt-2 text-sm text-[var(--muted)]">{goal.note}</p> : null}
-            {goal.milestoneMeta && Object.keys(goal.milestoneMeta).length > 0 ? (
+            {milestonesForGoal(goal).length > 0 ? (
               <ul className="mt-3 space-y-1.5 text-sm text-[var(--muted)]">
-                {milestonesForTarget(goal.targetCents).map((c) => {
-                  const entry = goal.milestoneMeta?.[String(c)]
-                  const title =
-                    entry?.title?.trim() ||
-                    defaultMilestoneTitle(c, goal.targetCents, goal.name)
-                  return (
-                    <li key={c} className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="font-medium text-[var(--text)]">{title}</span>
-                      <span>· {formatUsd(c)}</span>
-                      {entry?.treat ? (
-                        <span className="inline-flex items-center gap-1 text-[var(--orange)]">
-                          <Gift size={12} aria-hidden />
-                          {entry.treat}
-                        </span>
-                      ) : null}
-                    </li>
-                  )
-                })}
+                {milestonesForGoal(goal).map((m) => (
+                  <li key={m.id} className="flex flex-wrap items-baseline gap-x-2">
+                    <MilestoneIcon name={m.icon} size="sm" className="inline text-[var(--green)]" />
+                    <span className="font-medium text-[var(--text)]">{m.title}</span>
+                    <span>· {formatUsd(m.cents)}</span>
+                    {m.treat ? (
+                      <span className="inline-flex items-center gap-1 text-[var(--orange)]">
+                        <Gift size={12} aria-hidden />
+                        {m.treat}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
               </ul>
             ) : null}
           </div>
@@ -468,58 +504,122 @@ export function Settings() {
                 placeholder="Why this goal matters"
               />
             </div>
-            {draftMilestoneCents.length > 0 ? (
+            {(draftMilestones.length > 0 || draftTargetCents > 0) ? (
               <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)]">
                 <button
                   type="button"
                   className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-                  onClick={() => setMilestonesOpen((o) => !o)}
+                  onClick={() => {
+                    if (!draftMilestones.length && draftTargetCents > 0) {
+                      setDraftMilestones(
+                        resetMilestonesToFractions(
+                          draftTargetCents,
+                          goalName.trim() || 'Goal',
+                          goal?.milestones,
+                        ),
+                      )
+                    }
+                    setMilestonesOpen((o) => !o)
+                  }}
                   aria-expanded={milestonesOpen}
                 >
                   <span className="font-semibold">Milestones</span>
                   <span className="text-sm text-[var(--muted)]">
-                    {milestonesOpen ? 'Hide' : 'Edit titles & treats'}
+                    {milestonesOpen ? 'Hide' : 'Edit title, treat, amount & icon'}
                   </span>
                 </button>
                 {milestonesOpen ? (
-                  <ul className="space-y-4 border-t border-[var(--border)] px-4 py-4">
-                    {draftMilestoneCents.map((c) => {
-                      const key = String(c)
-                      const entry = milestoneMeta[key]
-                      const title =
-                        entry?.title ??
-                        defaultMilestoneTitle(c, draftTargetCents, goalName.trim() || 'Goal')
-                      return (
-                        <li key={c} className="space-y-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                            {formatUsd(c)}
-                          </p>
+                  <div className="space-y-4 border-t border-[var(--border)] px-4 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs"
+                        onClick={() =>
+                          setDraftMilestones(
+                            resetMilestonesToFractions(
+                              draftTargetCents || goal?.targetCents || 0,
+                              goalName.trim() || 'Goal',
+                              draftMilestones,
+                            ),
+                          )
+                        }
+                      >
+                        Reset to % of goal
+                      </button>
+                    </div>
+                    <ul className="space-y-4">
+                      {draftMilestones.map((m) => (
+                        <li key={m.id} className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+                          <div className="flex items-center gap-2 text-[var(--green)]">
+                            <MilestoneIcon name={m.icon} size="md" />
+                            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                              Checkpoint
+                            </p>
+                          </div>
                           <div>
                             <label className="label">Title</label>
                             <input
                               className="field"
-                              value={title}
-                              onChange={(e) => updateMilestoneField(c, 'title', e.target.value)}
+                              value={m.title}
+                              onChange={(e) => updateDraftMilestone(m.id, { title: e.target.value })}
                               placeholder={defaultMilestoneTitle(
-                                c,
+                                m.cents,
                                 draftTargetCents,
                                 goalName.trim() || 'Goal',
                               )}
                             />
                           </div>
                           <div>
+                            <label className="label">Amount (USD)</label>
+                            <input
+                              className="field"
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={fromCents(m.cents).toFixed(2)}
+                              onChange={(e) =>
+                                updateDraftMilestone(m.id, {
+                                  cents: toCents(Number(e.target.value)),
+                                })
+                              }
+                            />
+                          </div>
+                          <div>
                             <label className="label">Treat (optional)</label>
                             <input
                               className="field"
-                              value={entry?.treat ?? ''}
-                              onChange={(e) => updateMilestoneField(c, 'treat', e.target.value)}
+                              value={m.treat ?? ''}
+                              onChange={(e) => updateDraftMilestone(m.id, { treat: e.target.value })}
                               placeholder="Get ice cream"
                             />
                           </div>
+                          <div>
+                            <label className="label">Icon</label>
+                            <div className="flex flex-wrap gap-2">
+                              {MILESTONE_ICON_OPTIONS.map((opt) => (
+                                <button
+                                  key={opt.key}
+                                  type="button"
+                                  className={`btn px-2.5 py-1.5 ${
+                                    m.icon === opt.key ? 'btn-primary' : 'btn-secondary'
+                                  }`}
+                                  onClick={() =>
+                                    updateDraftMilestone(m.id, {
+                                      icon: opt.key as MilestoneIconKey,
+                                    })
+                                  }
+                                  aria-label={opt.label}
+                                  title={opt.label}
+                                >
+                                  <MilestoneIcon name={opt.key} size="sm" />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </li>
-                      )
-                    })}
-                  </ul>
+                      ))}
+                    </ul>
+                  </div>
                 ) : null}
               </div>
             ) : null}
@@ -536,7 +636,7 @@ export function Settings() {
                     setGoalName(goal.name)
                     setGoalTarget(fromCents(goal.targetCents).toFixed(2))
                     setGoalNote(goal.note)
-                    setMilestoneMeta(goal.milestoneMeta ?? {})
+                    setDraftMilestones(milestonesForGoal(goal))
                     setMilestonesOpen(false)
                   }}
                 >
@@ -841,6 +941,7 @@ export function Settings() {
         {(
           [
             ['notifyMilestone', 'When you reach a milestone'],
+            ['celebrationSound', 'Play a soft sound on milestone unlock'],
             ['notifyAllowance', 'When allowance is added'],
             ['notifySubscriptionFail', 'When a subscription can’t be paid'],
             ['notifyAppleMismatch', 'When Apple Cash doesn’t match'],
@@ -850,10 +951,13 @@ export function Settings() {
           <label key={key} className="flex items-center gap-2 text-sm font-semibold">
             <input
               type="checkbox"
-              checked={Boolean(state.settings.reminders[key])}
+              checked={Boolean(state.settings.reminders[key as keyof ReminderSettings])}
               onChange={(e) =>
                 updateSettings({
-                  reminders: { ...state.settings.reminders, [key]: e.target.checked },
+                  reminders: {
+                    ...state.settings.reminders,
+                    [key]: e.target.checked,
+                  },
                 })
               }
             />

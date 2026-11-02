@@ -1,6 +1,7 @@
 import { normalizeAllocationPct } from './money'
 import {
   createEmptyState,
+  migrateAchievementState,
   normalizeActiveGoal,
   normalizeAllowanceAuto,
   normalizeBusinesses,
@@ -11,6 +12,7 @@ import {
   type AppState,
   type PushSubscriptionJSON,
 } from '../types'
+import { computeBalances } from './balances'
 // PushSubscriptionJSON is our local type alias in types.ts
 import { isValidTimeZone } from './timezone'
 
@@ -33,6 +35,19 @@ export function loadState(): AppState {
     const empty = createEmptyState().settings
     const tzRaw = String(parsed.settings.timezone || '').trim()
     const timezone = isValidTimeZone(tzRaw) ? tzRaw : empty.timezone
+    const txs = Array.isArray(parsed.transactions) ? parsed.transactions : []
+    const goalBal = computeBalances(txs).iphone
+    const migrated = migrateAchievementState(
+      {
+        ...empty,
+        ...parsed.settings,
+        activeGoal,
+        celebratedMilestones: parsed.settings.celebratedMilestones ?? [],
+        celebratedMilestoneIds: parsed.settings.celebratedMilestoneIds ?? [],
+        achievementHistory: parsed.settings.achievementHistory ?? [],
+      } as AppState['settings'],
+      goalBal,
+    )
     return {
       version: 1,
       settings: {
@@ -43,7 +58,13 @@ export function loadState(): AppState {
         goalCents: activeGoal?.targetCents ?? 0,
         businesses: normalizeBusinesses(parsed.settings.businesses),
         importedEventIds: parsed.settings.importedEventIds ?? [],
-        celebratedMilestones: parsed.settings.celebratedMilestones ?? [],
+        celebratedMilestones: migrated.celebratedMilestones,
+        celebratedMilestoneIds: migrated.celebratedMilestoneIds,
+        achievementHistory: migrated.achievementHistory,
+        xpTotal: Math.max(0, Math.trunc(Number(parsed.settings.xpTotal) || 0)),
+        lastStreakXpWeekKey: parsed.settings.lastStreakXpWeekKey
+          ? String(parsed.settings.lastStreakXpWeekKey)
+          : null,
         printxOpenOwedCents: Number(parsed.settings.printxOpenOwedCents) || 0,
         printxOpenResolvedCents: Number(parsed.settings.printxOpenResolvedCents) || 0,
         printxLastResolvedCents: Number(parsed.settings.printxLastResolvedCents) || 0,

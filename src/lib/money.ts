@@ -276,6 +276,53 @@ export function milestoneMetaFor(
   return { title: entry.title, treat: entry.treat }
 }
 
+/** True for auto unlock titles like "iPhone Duo unlocked!" (follow current goal name). */
+export function isAutoUnlockMilestoneTitle(title: string | undefined | null): boolean {
+  return Boolean(title && /^.+\s+unlocked!$/i.test(title.trim()))
+}
+
+/**
+ * Keep 100% milestone title in sync with the current goal name.
+ * Preserves treats and fully custom unlock titles that don't match the auto pattern.
+ */
+export function syncMilestoneMetaGoalName(
+  meta: MilestoneMetaMap | null | undefined,
+  targetCents: number,
+  goalName: string,
+): MilestoneMetaMap | undefined {
+  if (!meta || targetCents <= 0) return meta || undefined
+  const name = goalName.trim() || 'Goal'
+  const unlockKey = String(targetCents)
+  const next: MilestoneMetaMap = { ...meta }
+  let changed = false
+  for (const c of milestonesForTarget(targetCents)) {
+    const key = String(c)
+    const entry = next[key]
+    if (!entry) continue
+    if (c >= targetCents || key === unlockKey) {
+      if (!entry.title?.trim() || isAutoUnlockMilestoneTitle(entry.title)) {
+        const title = `${name} unlocked!`
+        if (entry.title !== title) {
+          next[key] = entry.treat?.trim()
+            ? { title, treat: entry.treat.trim() }
+            : { title }
+          changed = true
+        }
+      }
+    }
+  }
+  // Also fix stale keys that were the old target amount if target unchanged but title stale
+  for (const [key, entry] of Object.entries(next)) {
+    if (!entry) continue
+    if (isAutoUnlockMilestoneTitle(entry.title) && !entry.title.startsWith(`${name} `)) {
+      const title = `${name} unlocked!`
+      next[key] = entry.treat?.trim() ? { title, treat: entry.treat.trim() } : { title }
+      changed = true
+    }
+  }
+  return changed ? next : meta
+}
+
 export function milestoneLabel(
   cents: number,
   opts?: {
@@ -287,6 +334,11 @@ export function milestoneLabel(
   const target = opts?.targetCents ?? 0
   const name = opts?.goalName?.trim() || 'Goal'
   const custom = milestoneMetaFor(cents, opts?.milestoneMeta).title?.trim()
+  // 100% / unlock titles always follow the live goal name unless fully custom.
+  if (target > 0 && cents >= target) {
+    if (!custom || isAutoUnlockMilestoneTitle(custom)) return `${name} unlocked!`
+    return custom
+  }
   if (custom) return custom
   if (target > 0) return defaultMilestoneTitle(cents, target, name)
   return `First ${formatUsd(cents)} saved`

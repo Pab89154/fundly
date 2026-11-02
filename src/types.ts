@@ -75,6 +75,8 @@ export interface ReminderSettings {
   notifyWeeklyReview: boolean
   /** Browser notification when a Goal milestone (or full goal) unlocks. */
   notifyMilestone: boolean
+  /** Soft celebration chime (off by default). */
+  celebrationSound: boolean
   /** 0=Sun … 6=Sat — “See this week!” day (default Monday; weeks are Mon–Sun). */
   weeklyReviewWeekday: number
 }
@@ -247,6 +249,7 @@ export function normalizeReminders(raw: unknown): ReminderSettings {
     notifyAppleMismatch: o.notifyAppleMismatch !== false,
     notifyWeeklyReview: o.notifyWeeklyReview !== false,
     notifyMilestone: o.notifyMilestone !== false,
+    celebrationSound: Boolean(o.celebrationSound),
     weeklyReviewWeekday: wd >= 0 && wd <= 6 ? wd : 1,
   }
 }
@@ -289,12 +292,36 @@ export type MilestoneMetaEntry = {
   treat?: string
 }
 
+export type MilestoneIconKey = 'spark' | 'rocket' | 'flag' | 'medal' | 'flame' | 'crown'
+
+/** Ordered checkpoint with stable id (amount edits must not orphan achievements). */
+export type GoalMilestone = {
+  id: string
+  cents: number
+  title: string
+  treat?: string
+  icon?: MilestoneIconKey
+}
+
+export type AchievementRecord = {
+  milestoneId: string
+  titleAtUnlock: string
+  centsAtUnlock: number
+  unlockedAt: string
+  balanceAtUnlock: number
+}
+
 /** One active savings goal at a time (null = no goal yet). */
 export interface ActiveGoal {
   name: string
   targetCents: number
   note: string
-  /** Per-checkpoint labels/treats keyed by milestone cents string. */
+  /** Stable ordered checkpoints (preferred over milestoneMeta). */
+  milestones?: GoalMilestone[]
+  /**
+   * @deprecated Prefer milestones[] — kept for older cloud saves / migration.
+   * Per-checkpoint labels/treats keyed by milestone cents string.
+   */
   milestoneMeta?: Record<string, MilestoneMetaEntry>
   createdAt: string
   updatedAt?: string
@@ -319,7 +346,16 @@ export interface Settings {
   lastSyncedAt: string | null
   syncCursor: string | null
   importedEventIds: string[]
+  /** Legacy: celebrated checkpoint amounts (cents). Never wipe. */
   celebratedMilestones: number[]
+  /** Celebrated checkpoint ids (preferred; survives amount edits). */
+  celebratedMilestoneIds: string[]
+  /** Unlock history for the achievement gallery. */
+  achievementHistory: AchievementRecord[]
+  /** Running XP score (income, unlocks, streak weeks). */
+  xpTotal: number
+  /** Monday ISO week key last awarded streak XP for. */
+  lastStreakXpWeekKey: string | null
   /** Last PrintX "Owed to me" amount synced (cents). */
   printxOpenOwedCents: number
   /**
@@ -405,6 +441,10 @@ export const DEFAULT_SETTINGS: Settings = {
   syncCursor: null,
   importedEventIds: [],
   celebratedMilestones: [],
+  celebratedMilestoneIds: [],
+  achievementHistory: [],
+  xpTotal: 0,
+  lastStreakXpWeekKey: null,
   businesses: DEFAULT_BUSINESSES.map((b) => ({ ...b })),
   printxOpenOwedCents: 0,
   printxOpenResolvedCents: 0,
@@ -424,6 +464,7 @@ export const DEFAULT_SETTINGS: Settings = {
     notifyAppleMismatch: true,
     notifyWeeklyReview: true,
     notifyMilestone: true,
+    celebrationSound: false,
     weeklyReviewWeekday: 1,
   },
   pushSubscription: null,
@@ -453,11 +494,34 @@ export function normalizeActiveGoal(
   if (settings.activeGoal && typeof settings.activeGoal === 'object') {
     const name = String(settings.activeGoal.name || '').trim() || 'My goal'
     const targetCents = Math.max(0, Math.trunc(Number(settings.activeGoal.targetCents) || 0))
-    const milestoneMeta = normalizeMilestoneMeta(settings.activeGoal.milestoneMeta)
+    let milestoneMeta = normalizeMilestoneMeta(settings.activeGoal.milestoneMeta)
+    if (milestoneMeta && targetCents > 0) {
+      const unlockTitle = `${name} unlocked!`
+      const next = { ...milestoneMeta }
+      let changed = false
+      for (const [key, entry] of Object.entries(next)) {
+        if (!entry?.title) continue
+        if (/^.+\s+unlocked!$/i.test(entry.title.trim()) && entry.title.trim() !== unlockTitle) {
+          next[key] = entry.treat?.trim()
+            ? { title: unlockTitle, treat: entry.treat.trim() }
+            : { title: unlockTitle }
+          changed = true
+        }
+      }
+      if (changed) milestoneMeta = next
+    }
+    const rawMilestones = settings.activeGoal.milestones
+    let milestones: GoalMilestone[] | undefined
+    if (Array.isArray(rawMilestones) && rawMilestones.length > 0) {
+      milestones = normalizeGoalMilestoneList(rawMilestones, targetCents, name)
+    } else if (targetCents > 0) {
+      milestones = seedMilestonesFromMeta(targetCents, name, milestoneMeta)
+    }
     return {
       name,
       targetCents,
       note: String(settings.activeGoal.note || ''),
+      ...(milestones?.length ? { milestones } : {}),
       ...(milestoneMeta ? { milestoneMeta } : {}),
       createdAt: settings.activeGoal.createdAt || new Date().toISOString(),
       updatedAt: settings.activeGoal.updatedAt,
@@ -469,10 +533,106 @@ export function normalizeActiveGoal(
       name: 'iPhone Duo',
       targetCents: legacy,
       note: '',
+      milestones: seedMilestonesFromMeta(legacy, 'iPhone Duo', undefined),
       createdAt: new Date(0).toISOString(),
     }
   }
   return null
+}
+
+const DEFAULT_MILESTONE_IDS = [
+  'm_first_spark',
+  'm_getting_started',
+  'm_quarter_way',
+  'm_halfway_hero',
+  'm_almost_there',
+  'm_goal_unlocked',
+] as const
+
+const DEFAULT_MILESTONE_ICONS: MilestoneIconKey[] = [
+  'spark',
+  'rocket',
+  'flag',
+  'medal',
+  'flame',
+  'crown',
+]
+
+function defaultTitleForRatio(cents: number, target: number, goalName: string): string {
+  const name = goalName.trim() || 'Goal'
+  if (target <= 0) return `First checkpoint`
+  if (cents >= target) return `${name} unlocked!`
+  const ratio = cents / target
+  if (ratio <= 0.08) return 'First spark'
+  if (ratio <= 0.18) return 'Getting started'
+  if (ratio <= 0.35) return 'Quarter way'
+  if (ratio <= 0.6) return 'Halfway hero'
+  if (ratio <= 0.85) return 'Almost there'
+  return 'Final stretch'
+}
+
+function fracMilestones(targetCents: number): number[] {
+  const target = Math.trunc(targetCents) || 0
+  if (target <= 0) return []
+  const fracs = [0.05, 0.125, 0.25, 0.5, 0.75, 1]
+  const set = new Set<number>()
+  for (const f of fracs) set.add(Math.max(1, Math.round(target * f)))
+  set.add(target)
+  return [...set].filter((c) => c > 0 && c <= target).sort((a, b) => a - b)
+}
+
+function seedMilestonesFromMeta(
+  targetCents: number,
+  goalName: string,
+  meta?: Record<string, MilestoneMetaEntry>,
+): GoalMilestone[] {
+  const name = goalName.trim() || 'Goal'
+  const centsList = fracMilestones(targetCents)
+  return centsList.map((cents, i) => {
+    const entry = meta?.[String(cents)]
+    let title = entry?.title?.trim() || defaultTitleForRatio(cents, targetCents, name)
+    if (cents >= targetCents && /^.+\s+unlocked!$/i.test(title)) title = `${name} unlocked!`
+    const treat = entry?.treat?.trim()
+    return {
+      id: DEFAULT_MILESTONE_IDS[i] ?? `m_${i}_${cents}`,
+      cents,
+      title,
+      ...(treat ? { treat } : {}),
+      icon: DEFAULT_MILESTONE_ICONS[Math.min(i, 5)] ?? 'spark',
+    }
+  })
+}
+
+function normalizeGoalMilestoneList(
+  raw: unknown[],
+  targetCents: number,
+  goalName: string,
+): GoalMilestone[] {
+  const name = goalName.trim() || 'Goal'
+  const out: GoalMilestone[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i]
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    let id = String(o.id || '').trim() || `m_${i}_${Date.now()}`
+    if (seen.has(id)) id = `${id}_${i}`
+    seen.add(id)
+    const cents = Math.max(1, Math.trunc(Number(o.cents) || 0))
+    let title = String(o.title || '').trim()
+    if (!title) title = defaultTitleForRatio(cents, targetCents, name)
+    if (targetCents > 0 && cents >= targetCents && /^.+\s+unlocked!$/i.test(title)) {
+      title = `${name} unlocked!`
+    }
+    const treat = String(o.treat || '').trim()
+    const iconRaw = String(o.icon || '').trim() as MilestoneIconKey
+    const icon = DEFAULT_MILESTONE_ICONS.includes(iconRaw)
+      ? iconRaw
+      : (DEFAULT_MILESTONE_ICONS[Math.min(i, 5)] ?? 'spark')
+    out.push(treat ? { id, cents, title, treat, icon } : { id, cents, title, icon })
+  }
+  out.sort((a, b) => a.cents - b.cents || a.id.localeCompare(b.id))
+  return out.length ? out : seedMilestonesFromMeta(targetCents, name, undefined)
 }
 
 export function goalTargetCents(settings: Settings): number {
@@ -484,9 +644,7 @@ export function goalName(settings: Settings): string {
 }
 
 export function createEmptyState(): AppState {
-  const activeGoal = DEFAULT_SETTINGS.activeGoal
-    ? { ...DEFAULT_SETTINGS.activeGoal }
-    : null
+  const activeGoal = normalizeActiveGoal(DEFAULT_SETTINGS)
   return {
     version: 1,
     settings: {
@@ -497,6 +655,10 @@ export function createEmptyState(): AppState {
       businesses: DEFAULT_BUSINESSES.map((b) => ({ ...b })),
       importedEventIds: [],
       celebratedMilestones: [],
+      celebratedMilestoneIds: [],
+      achievementHistory: [],
+      xpTotal: 0,
+      lastStreakXpWeekKey: null,
       printxIgnoredEventIds: [],
       allowanceAuto: { ...DEFAULT_SETTINGS.allowanceAuto },
       subscriptions: [],
@@ -506,5 +668,78 @@ export function createEmptyState(): AppState {
       lastRecurringSkip: null,
     },
     transactions: [],
+  }
+}
+
+export function normalizeAchievementHistory(raw: unknown): AchievementRecord[] {
+  if (!Array.isArray(raw)) return []
+  const out: AchievementRecord[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const milestoneId = String(o.milestoneId || '').trim()
+    if (!milestoneId || seen.has(milestoneId)) continue
+    seen.add(milestoneId)
+    out.push({
+      milestoneId,
+      titleAtUnlock: String(o.titleAtUnlock || '').trim() || 'Milestone',
+      centsAtUnlock: Math.max(0, Math.trunc(Number(o.centsAtUnlock) || 0)),
+      unlockedAt: String(o.unlockedAt || new Date().toISOString()),
+      balanceAtUnlock: Math.max(0, Math.trunc(Number(o.balanceAtUnlock) || 0)),
+    })
+  }
+  return out
+}
+
+/** Migrate legacy celebrated cents → history + ids when history is empty. */
+export function migrateAchievementState(
+  settings: Settings,
+  goalBalanceCents = 0,
+): Pick<Settings, 'achievementHistory' | 'celebratedMilestoneIds' | 'celebratedMilestones'> {
+  const history = normalizeAchievementHistory(settings.achievementHistory)
+  const celebratedCents = Array.isArray(settings.celebratedMilestones)
+    ? settings.celebratedMilestones.map((c) => Math.trunc(Number(c) || 0)).filter((c) => c > 0)
+    : []
+  let ids = Array.isArray(settings.celebratedMilestoneIds)
+    ? settings.celebratedMilestoneIds.map(String).filter(Boolean)
+    : []
+
+  if (history.length === 0 && celebratedCents.length > 0 && settings.activeGoal) {
+    const list = settings.activeGoal.milestones?.length
+      ? settings.activeGoal.milestones
+      : seedMilestonesFromMeta(
+          settings.activeGoal.targetCents,
+          settings.activeGoal.name,
+          settings.activeGoal.milestoneMeta,
+        )
+    const celebrated = new Set(celebratedCents)
+    const seeded: AchievementRecord[] = []
+    for (const m of list) {
+      if (!celebrated.has(m.cents)) continue
+      seeded.push({
+        milestoneId: m.id,
+        titleAtUnlock: m.title,
+        centsAtUnlock: m.cents,
+        unlockedAt: new Date(0).toISOString(),
+        balanceAtUnlock: Math.max(goalBalanceCents, m.cents),
+      })
+      if (!ids.includes(m.id)) ids = [...ids, m.id]
+    }
+    return {
+      achievementHistory: seeded,
+      celebratedMilestoneIds: ids,
+      celebratedMilestones: celebratedCents,
+    }
+  }
+
+  if (ids.length === 0 && history.length > 0) {
+    ids = history.map((h) => h.milestoneId)
+  }
+
+  return {
+    achievementHistory: history,
+    celebratedMilestoneIds: ids,
+    celebratedMilestones: celebratedCents,
   }
 }

@@ -11,7 +11,6 @@ import {
 import {
   ACCOUNT_LABELS,
   allocateCents,
-  crossedMilestones,
   formatUsd,
   fromCents,
   isValidAllocationPct,
@@ -26,6 +25,8 @@ import {
   type SpendSlice,
 } from '../lib/money'
 import { computeBalances } from '../lib/balances'
+import { awardXp, streakXpIfDue, XP } from '../lib/gamification'
+import { applyGoalUnlocks, type CelebrationPayload } from '../lib/milestones'
 import { applyDueRecurring, logWeeklyAllowanceTx } from '../lib/recurring'
 import { clearState, loadState, newId, saveState } from '../lib/storage'
 import { detectDeviceTimeZone, isValidTimeZone, zonedDateISO } from '../lib/timezone'
@@ -33,7 +34,7 @@ import { fetchCloudState, logoutFundly, saveCloudState } from '../lib/fundlyApi'
 import { maybeNotify } from '../lib/notify'
 import {
   createEmptyState,
-  goalTargetCents,
+  migrateAchievementState,
   normalizeActiveGoal,
   normalizeAllowanceAuto,
   normalizeBusinesses,
@@ -227,7 +228,7 @@ type MoneyContextValue = {
     }>,
   ) => { ok: true; imported: number; skipped: number } | { ok: false; error: string }
   resetAllData: () => void
-  celebration: number | null
+  celebration: CelebrationPayload | null
   dismissCelebration: () => void
   /** True when timezone is unset / detection failed — show picker. */
   needsTimezonePrompt: boolean
@@ -245,11 +246,11 @@ type MoneyContextValue = {
   }
 }
 
-function normalizeLoadedSettings(settings: Settings): Settings {
+function normalizeLoadedSettings(settings: Settings, goalBalanceCents = 0): Settings {
   const empty = createEmptyState().settings
   const activeGoal = normalizeActiveGoal(settings)
   const tzRaw = String(settings.timezone || '').trim()
-  return {
+  const base: Settings = {
     ...empty,
     ...settings,
     allocation: normalizeAllocationPct(settings.allocation),
@@ -267,7 +268,36 @@ function normalizeLoadedSettings(settings: Settings): Settings {
     printxIgnoredEventIds: Array.isArray(settings.printxIgnoredEventIds)
       ? settings.printxIgnoredEventIds
       : [],
+    xpTotal: Math.max(0, Math.trunc(Number(settings.xpTotal) || 0)),
+    lastStreakXpWeekKey: settings.lastStreakXpWeekKey
+      ? String(settings.lastStreakXpWeekKey)
+      : null,
   }
+  const migrated = migrateAchievementState(base, goalBalanceCents)
+  return { ...base, ...migrated }
+}
+
+function withGoalUnlocks(
+  settings: Settings,
+  transactions: Transaction[],
+  prevIphone: number,
+  nextIphone: number,
+  opts?: { incomeXp?: boolean },
+): { settings: Settings; celebration: CelebrationPayload | null } {
+  const unlock = applyGoalUnlocks(settings, prevIphone, nextIphone)
+  let next: Settings = { ...settings, ...unlock.settingsPatch }
+  let xp = Math.max(0, Math.trunc(next.xpTotal || 0))
+  if (opts?.incomeXp) {
+    xp = awardXp(xp, XP.incomeLogged)
+  }
+  const tz = next.timezone || 'America/Chicago'
+  const streak = streakXpIfDue(next.lastStreakXpWeekKey, transactions, tz)
+  if (streak) {
+    xp = awardXp(xp, streak.xp)
+    next = { ...next, lastStreakXpWeekKey: streak.weekKey }
+  }
+  next = { ...next, xpTotal: xp }
+  return { settings: next, celebration: unlock.celebration }
 }
 
 const MoneyContext = createContext<MoneyContextValue | null>(null)
@@ -280,7 +310,7 @@ export function MoneyProvider({
   cloudEnabled?: boolean
 }) {
   const [state, setState] = useState<AppState>(() => stripLegacyPrintxResolves(loadState()))
-  const [celebration, setCelebration] = useState<number | null>(null)
+  const [celebration, setCelebration] = useState<CelebrationPayload | null>(null)
   const [cloudReady, setCloudReady] = useState(!cloudEnabled)
   const [cloudEmpty, setCloudEmpty] = useState(false)
   const [cloudError, setCloudError] = useState<string | null>(null)
@@ -320,7 +350,10 @@ export function MoneyProvider({
       if (!remote.empty) {
         const next: AppState = {
           ...remote.state,
-          settings: normalizeLoadedSettings(remote.state.settings as Settings),
+          settings: normalizeLoadedSettings(
+            remote.state.settings as Settings,
+            computeBalances((remote.state.transactions as Transaction[]) || []).iphone,
+          ),
         }
         const cleaned = stripLegacyPrintxResolves(next)
         setState(cleaned)
@@ -417,23 +450,18 @@ export function MoneyProvider({
       const nextTxs = [...prev.transactions, ...txs]
       const nextBalances = computeBalances(nextTxs)
       const prevIphone = celebrateFrom ?? computeBalances(prev.transactions).iphone
-      const crossed = crossedMilestones(prevIphone, nextBalances.iphone, goalTargetCents(prev.settings)).filter(
-        (m) => !prev.settings.celebratedMilestones.includes(m),
+      const incomeXp = txs.some(
+        (t) => t.type === 'income' || t.type === 'import' || t.type === 'opening',
       )
-      if (crossed.length) {
-        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
-      }
-      return {
-        ...prev,
-        transactions: nextTxs,
-        settings: {
-          ...prev.settings,
-          celebratedMilestones: [
-            ...prev.settings.celebratedMilestones,
-            ...crossed.filter((m) => !prev.settings.celebratedMilestones.includes(m)),
-          ],
-        },
-      }
+      const { settings, celebration: cele } = withGoalUnlocks(
+        prev.settings,
+        nextTxs,
+        prevIphone,
+        nextBalances.iphone,
+        { incomeXp },
+      )
+      if (cele) queueMicrotask(() => setCelebration(cele))
+      return { ...prev, transactions: nextTxs, settings }
     })
   }, [])
 
@@ -784,15 +812,15 @@ export function MoneyProvider({
       }
 
       const iphoneBal = computeBalances(txs).iphone
+      const unlocked = withGoalUnlocks(prev.settings, txs, 0, iphoneBal).settings
       return {
         ...prev,
         transactions: txs,
         settings: {
-          ...prev.settings,
+          ...unlocked,
           onboardingComplete: true,
           appleCashConfirmedCents: apple,
           appleCashConfirmedAt: new Date().toISOString(),
-          celebratedMilestones: crossedMilestones(0, iphoneBal, goalTargetCents(prev.settings)),
         },
       }
     })
@@ -865,7 +893,6 @@ export function MoneyProvider({
       let lastResolvedAt = base.settings.printxLastResolvedAt
       let undo = base.settings.printxResolveUndo
       const iphoneBefore = computeBalances(base.transactions).iphone
-      const celebrated = [...base.settings.celebratedMilestones]
 
       for (const ev of events) {
         if (!ev.eventId) {
@@ -937,35 +964,37 @@ export function MoneyProvider({
         }
       }
 
+      let settingsOut: Settings = {
+        ...base.settings,
+        importedEventIds: ids,
+        syncCursor: cursor,
+        lastSyncedAt: new Date().toISOString(),
+        printxOpenResolvedCents: 0,
+        printxLastResolvedCents: lastResolvedCents,
+        printxLastResolvedAt: lastResolvedAt,
+        printxResolveUndo: undo,
+        printxAutoSettleV2: true,
+      }
       if (imported > 0) {
         const iphoneAfter = computeBalances(txs).iphone
-        const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(base.settings)).filter(
-          (m) => !celebrated.includes(m),
+        const { settings: unlocked, celebration: cele } = withGoalUnlocks(
+          settingsOut,
+          txs,
+          iphoneBefore,
+          iphoneAfter,
+          { incomeXp: true },
         )
-        for (const m of crossed) {
-          celebrated.push(m)
-          newMilestoneCents.push(m)
-        }
-        if (crossed.length) {
-          queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
+        settingsOut = unlocked
+        if (cele) {
+          newMilestoneCents.push(cele.cents)
+          queueMicrotask(() => setCelebration(cele))
         }
       }
 
       return {
         ...base,
         transactions: txs,
-        settings: {
-          ...base.settings,
-          importedEventIds: ids,
-          syncCursor: cursor,
-          lastSyncedAt: new Date().toISOString(),
-          printxOpenResolvedCents: 0,
-          printxLastResolvedCents: lastResolvedCents,
-          printxLastResolvedAt: lastResolvedAt,
-          printxResolveUndo: undo,
-          celebratedMilestones: celebrated,
-          printxAutoSettleV2: true,
-        },
+        settings: settingsOut,
       }
     })
 
@@ -1064,20 +1093,14 @@ export function MoneyProvider({
       const copy = [...prev.transactions]
       copy[idx] = nextTx
       const iphoneAfter = computeBalances(copy).iphone
-      const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(prev.settings)).filter(
-        (m) => !prev.settings.celebratedMilestones.includes(m),
+      const { settings, celebration: cele } = withGoalUnlocks(
+        prev.settings,
+        copy,
+        iphoneBefore,
+        iphoneAfter,
       )
-      if (crossed.length) {
-        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
-      }
-      return {
-        ...prev,
-        transactions: copy,
-        settings: {
-          ...prev.settings,
-          celebratedMilestones: [...prev.settings.celebratedMilestones, ...crossed],
-        },
-      }
+      if (cele) queueMicrotask(() => setCelebration(cele))
+      return { ...prev, transactions: copy, settings }
     })
     if (error) return { ok: false as const, error }
     return { ok: true as const }
@@ -1103,20 +1126,14 @@ export function MoneyProvider({
           : tx,
       )
       const iphoneAfter = computeBalances(copy).iphone
-      const crossed = crossedMilestones(iphoneBefore, iphoneAfter, goalTargetCents(prev.settings)).filter(
-        (m) => !prev.settings.celebratedMilestones.includes(m),
+      const { settings, celebration: cele } = withGoalUnlocks(
+        prev.settings,
+        copy,
+        iphoneBefore,
+        iphoneAfter,
       )
-      if (crossed.length) {
-        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
-      }
-      return {
-        ...prev,
-        transactions: copy,
-        settings: {
-          ...prev.settings,
-          celebratedMilestones: [...prev.settings.celebratedMilestones, ...crossed],
-        },
-      }
+      if (cele) queueMicrotask(() => setCelebration(cele))
+      return { ...prev, transactions: copy, settings }
     })
     if (!settled) return { ok: false as const, error: 'Nothing waiting to settle.' }
     return { ok: true as const, settled }
@@ -1199,20 +1216,19 @@ export function MoneyProvider({
         }
       }
 
-      const crossed = crossedMilestones(iphoneBefore, running.iphone, goalTargetCents(snapshot.settings)).filter(
-        (m) => !snapshot.settings.celebratedMilestones.includes(m),
+      const { settings, celebration: cele } = withGoalUnlocks(
+        snapshot.settings,
+        txs,
+        iphoneBefore,
+        running.iphone,
+        { incomeXp: true },
       )
-      if (crossed.length) {
-        queueMicrotask(() => setCelebration(crossed[crossed.length - 1]!))
-      }
+      if (cele) queueMicrotask(() => setCelebration(cele))
 
       setState({
         ...snapshot,
         transactions: txs,
-        settings: {
-          ...snapshot.settings,
-          celebratedMilestones: [...snapshot.settings.celebratedMilestones, ...crossed],
-        },
+        settings,
       })
 
       return { ok: true as const, imported, skipped }
