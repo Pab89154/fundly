@@ -215,10 +215,18 @@ export default {
             })
           }
           if (ev.kind === 'subscription_skip' && next.settings.reminders?.notifySubscriptionFail) {
+            const pot =
+              ev.fromAccount === 'iphone'
+                ? 'Goal'
+                : ev.fromAccount === 'extra'
+                  ? 'Extra'
+                  : ev.fromAccount === 'charity'
+                    ? 'Charity'
+                    : 'Spending'
             await sendWebPush(env, sub, {
-              title: 'Subscription skipped',
-              body: `${ev.name}: not enough Spending money.`,
-              url: `${pagesBase}/`,
+              title: `${ev.name} can’t pay from ${pot}`,
+              body: `Not enough in ${pot}. Open Fundly to pick another pot or combine with a second pot.`,
+              url: `${pagesBase}/#/recurring`,
             })
           }
           if (ev.kind === 'weekly_review' && next.settings.reminders?.notifyWeeklyReview) {

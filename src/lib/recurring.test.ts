@@ -83,12 +83,15 @@ function baseState(): AppState {
       anchorDate: '2026-11-01',
       nextDueDate: '2026-11-01',
       enabled: true,
+      fromAccount: 'spending',
       createdAt: new Date().toISOString(),
     },
   ]
   // No spending money — should skip
   const { events } = applyDueRecurring(state, { todayISO: '2026-11-01' })
-  assert(events.some((e) => e.kind === 'subscription_skip'), 'skip when broke')
+  const skip = events.find((e) => e.kind === 'subscription_skip')
+  assert(skip && skip.kind === 'subscription_skip', 'skip when broke')
+  assert(skip.fromAccount === 'spending', 'skip names the pot')
 }
 
 {
@@ -114,6 +117,7 @@ function baseState(): AppState {
       anchorDate: '2026-11-01',
       nextDueDate: '2026-11-01',
       enabled: true,
+      fromAccount: 'spending',
       createdAt: new Date().toISOString(),
     },
   ]
@@ -121,6 +125,139 @@ function baseState(): AppState {
   assert(events.some((e) => e.kind === 'subscription'), 'subscription applied')
   const sub = next.settings.subscriptions[0]!
   assert(sub.nextDueDate === '2026-12-01', 'next due advanced')
+}
+
+{
+  // Goal pot short → skip with fromAccount iphone even if Spending has cash
+  const state = baseState()
+  state.settings.allowanceAuto.enabled = false
+  state.transactions.push({
+    id: 'seed-spend',
+    type: 'income',
+    amountCents: toCents(50),
+    date: '2026-10-01',
+    allocation: { iphone: 0, spending: toCents(50), extra: 0, charity: 0 },
+    source: 'other',
+    createdAt: new Date().toISOString(),
+  })
+  state.settings.subscriptions = [
+    {
+      id: 'sub3',
+      name: 'Cloud',
+      amountCents: toCents(10),
+      cadence: 'monthly',
+      anchorDate: '2026-11-01',
+      nextDueDate: '2026-11-01',
+      enabled: true,
+      fromAccount: 'iphone',
+      createdAt: new Date().toISOString(),
+    },
+  ]
+  const { events } = applyDueRecurring(state, { todayISO: '2026-11-01' })
+  const skip = events.find((e) => e.kind === 'subscription_skip')
+  assert(skip && skip.kind === 'subscription_skip', 'skip when goal pot short')
+  assert(skip.fromAccount === 'iphone', 'skip reports Goal pot')
+}
+
+{
+  // Charge from Extra when that pot has enough
+  const state = baseState()
+  state.settings.allowanceAuto.enabled = false
+  state.transactions.push({
+    id: 'seed-extra',
+    type: 'income',
+    amountCents: toCents(20),
+    date: '2026-10-01',
+    allocation: { iphone: 0, spending: 0, extra: toCents(20), charity: 0 },
+    source: 'other',
+    createdAt: new Date().toISOString(),
+  })
+  state.settings.subscriptions = [
+    {
+      id: 'sub4',
+      name: 'Music',
+      amountCents: toCents(8),
+      cadence: 'monthly',
+      anchorDate: '2026-11-01',
+      nextDueDate: '2026-11-01',
+      enabled: true,
+      fromAccount: 'extra',
+      createdAt: new Date().toISOString(),
+    },
+  ]
+  const { state: next, events } = applyDueRecurring(state, { todayISO: '2026-11-01' })
+  const charged = events.find((e) => e.kind === 'subscription')
+  assert(charged && charged.kind === 'subscription', 'charged from Extra')
+  assert(charged.fromAccount === 'extra', 'event fromAccount')
+  const tx = next.transactions.find((t) => t.tags?.includes('subscription'))
+  assert(tx?.fromAccount === 'extra', 'tx debits Extra')
+}
+
+{
+  // Primary short + combineWith covers → two slices, advances due
+  const state = baseState()
+  state.settings.allowanceAuto.enabled = false
+  state.transactions.push({
+    id: 'seed-split',
+    type: 'income',
+    amountCents: toCents(15),
+    date: '2026-10-01',
+    allocation: { iphone: 0, spending: toCents(5), extra: toCents(10), charity: 0 },
+    source: 'other',
+    createdAt: new Date().toISOString(),
+  })
+  state.settings.subscriptions = [
+    {
+      id: 'sub5',
+      name: 'Combo',
+      amountCents: toCents(12),
+      cadence: 'monthly',
+      anchorDate: '2026-11-01',
+      nextDueDate: '2026-11-01',
+      enabled: true,
+      fromAccount: 'spending',
+      combineWith: 'extra',
+      createdAt: new Date().toISOString(),
+    },
+  ]
+  const { state: next, events } = applyDueRecurring(state, { todayISO: '2026-11-01' })
+  assert(events.some((e) => e.kind === 'subscription'), 'combine subscription charged')
+  const parts = next.transactions.filter((t) => t.tags?.includes('subscription'))
+  assert(parts.length === 2, 'two combine slices')
+  assert(parts.some((t) => !t.fromAccount && t.amountCents === toCents(5)), 'spending drained')
+  assert(parts.some((t) => t.fromAccount === 'extra' && t.amountCents === toCents(7)), 'extra tops up')
+  assert(next.settings.subscriptions[0]!.nextDueDate === '2026-12-01', 'combine advances due')
+}
+
+{
+  // Combine still short → skip
+  const state = baseState()
+  state.settings.allowanceAuto.enabled = false
+  state.transactions.push({
+    id: 'seed-tiny',
+    type: 'income',
+    amountCents: toCents(6),
+    date: '2026-10-01',
+    allocation: { iphone: 0, spending: toCents(3), extra: toCents(3), charity: 0 },
+    source: 'other',
+    createdAt: new Date().toISOString(),
+  })
+  state.settings.subscriptions = [
+    {
+      id: 'sub6',
+      name: 'TooBig',
+      amountCents: toCents(10),
+      cadence: 'monthly',
+      anchorDate: '2026-11-01',
+      nextDueDate: '2026-11-01',
+      enabled: true,
+      fromAccount: 'spending',
+      combineWith: 'extra',
+      createdAt: new Date().toISOString(),
+    },
+  ]
+  const { events } = applyDueRecurring(state, { todayISO: '2026-11-01' })
+  assert(events.some((e) => e.kind === 'subscription_skip'), 'combine still skips when short')
 }
 
 {

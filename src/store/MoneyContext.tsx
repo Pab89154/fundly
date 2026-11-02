@@ -550,9 +550,17 @@ export function MoneyProvider({
           })
         }
         if (pushOn && ev.kind === 'subscription_skip' && settings.reminders.notifySubscriptionFail) {
+          const pot =
+            ev.fromAccount === 'iphone'
+              ? 'Goal'
+              : ev.fromAccount === 'extra'
+                ? 'Extra'
+                : ev.fromAccount === 'charity'
+                  ? 'Charity'
+                  : 'Spending'
           maybeNotify(
-            'Subscription skipped',
-            `${ev.name}: not enough Spending money.`,
+            `${ev.name} can’t pay from ${pot}`,
+            `Not enough in ${pot}. Open Fundly to pick another pot or combine with a second pot.`,
             { tag: `skip-${ev.subscriptionId}-${ev.date}`, url: '/recurring' },
           )
         }

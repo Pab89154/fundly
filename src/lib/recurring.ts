@@ -1,4 +1,11 @@
-import { allocateCents, normalizeAllocationCents, sumAllocation } from './money'
+import {
+  ACCOUNT_LABELS,
+  allocateCents,
+  normalizeAllocationCents,
+  planSpendAcrossPots,
+  sumAllocation,
+  type AccountId,
+} from './money'
 import { computeBalances } from './balances'
 import {
   addDaysISO,
@@ -25,6 +32,7 @@ export type RecurringApplyEvent =
       externalId: string
       subscriptionId: string
       name: string
+      fromAccount: AccountId
     }
   | {
       kind: 'subscription_skip'
@@ -32,6 +40,7 @@ export type RecurringApplyEvent =
       amountCents: number
       subscriptionId: string
       name: string
+      fromAccount: AccountId
     }
   | { kind: 'weekly_review'; weekKey: string }
 
@@ -146,10 +155,13 @@ export function applyDueRecurring(
     }
   }
 
-  // --- Subscriptions (spending only) ---
+  // --- Subscriptions (primary pot, optional combine partner) ---
   const skips: RecurringSkipNotice[] = []
   settings.subscriptions = settings.subscriptions.map((sub) => {
     if (!sub.enabled || sub.amountCents <= 0) return sub
+    const fromAccount: AccountId = sub.fromAccount || 'spending'
+    const helpers: AccountId[] =
+      sub.combineWith && sub.combineWith !== fromAccount ? [sub.combineWith] : []
     let next = sub.nextDueDate
     let updated = sub
     while (compareISODate(next, today) <= 0) {
@@ -160,13 +172,15 @@ export function applyDueRecurring(
         continue
       }
       const bal = computeBalances(transactions)
-      if (bal.spending < sub.amountCents) {
+      const plan = planSpendAcrossPots(bal, sub.amountCents, fromAccount, helpers)
+      if (!plan.ok) {
         events.push({
           kind: 'subscription_skip',
           date: next,
           amountCents: sub.amountCents,
           subscriptionId: sub.id,
           name: sub.name,
+          fromAccount,
         })
         skips.push({
           subscriptionId: sub.id,
@@ -178,18 +192,36 @@ export function applyDueRecurring(
         // Do not advance past a failed due — retry next open/cron
         break
       }
-      const tx: Transaction = {
-        id: newTxId('sub'),
-        type: 'spending',
-        amountCents: sub.amountCents,
-        date: next,
-        description: `${sub.name} (subscription)`,
-        category: sub.category || 'other',
-        externalId: ext,
-        tags: ['subscription', sub.id, 'recurring'],
-        createdAt: new Date().toISOString(),
+      const nowIso = new Date().toISOString()
+      const combineId = plan.slices.length > 1 ? newTxId('comb') : undefined
+      for (let i = 0; i < plan.slices.length; i++) {
+        const slice = plan.slices[i]!
+        const multi = plan.slices.length > 1
+        const tx: Transaction = {
+          id: newTxId('sub'),
+          type: 'spending',
+          amountCents: slice.cents,
+          date: next,
+          description: multi
+            ? `${sub.name} (subscription · ${ACCOUNT_LABELS[slice.account]} part)`
+            : `${sub.name} (subscription · ${ACCOUNT_LABELS[slice.account]})`,
+          category: sub.category || 'other',
+          fromAccount: slice.account === 'spending' ? undefined : slice.account,
+          // Idempotency key on the first slice only
+          externalId: i === 0 ? ext : undefined,
+          tags: [
+            'subscription',
+            sub.id,
+            'recurring',
+            `from:${slice.account}`,
+            ...(combineId
+              ? ['combine', `combine:${combineId}`, i === 0 ? 'combine-primary' : 'combine-part']
+              : []),
+          ],
+          createdAt: nowIso,
+        }
+        transactions.push(tx)
       }
-      transactions.push(tx)
       events.push({
         kind: 'subscription',
         date: next,
@@ -197,9 +229,10 @@ export function applyDueRecurring(
         externalId: ext,
         subscriptionId: sub.id,
         name: sub.name,
+        fromAccount,
       })
       next = advanceDueDate(next, sub.cadence)
-      updated = { ...updated, nextDueDate: next, updatedAt: new Date().toISOString() }
+      updated = { ...updated, nextDueDate: next, updatedAt: nowIso }
     }
     return updated
   })

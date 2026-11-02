@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react'
 import { CalendarClock, Plus, RefreshCw } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { formatUsd, fromCents, toCents } from '../lib/money'
+import { ACCOUNT_LABELS, formatUsd, fromCents, toCents, type AccountId } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { newId } from '../lib/storage'
 import { zonedDateISO } from '../lib/timezone'
 import type { RecurringCadence, Subscription } from '../types'
+
+const POT_OPTIONS: { value: AccountId; label: string }[] = [
+  { value: 'spending', label: ACCOUNT_LABELS.spending },
+  { value: 'iphone', label: ACCOUNT_LABELS.iphone },
+  { value: 'extra', label: ACCOUNT_LABELS.extra },
+  { value: 'charity', label: ACCOUNT_LABELS.charity },
+]
 
 const WEEKDAYS = [
   { value: '0', label: 'Sunday' },
@@ -39,6 +46,9 @@ export function Recurring() {
   const [subName, setSubName] = useState('')
   const [subAmount, setSubAmount] = useState('')
   const [subCadence, setSubCadence] = useState<RecurringCadence>('monthly')
+  const [subFrom, setSubFrom] = useState<AccountId>('spending')
+  /** Empty string = don’t combine; otherwise a second pot id. */
+  const [subCombine, setSubCombine] = useState<'' | AccountId>('')
   const [subNext, setSubNext] = useState(() =>
     zonedDateISO(state.settings.timezone || 'America/Chicago'),
   )
@@ -75,8 +85,8 @@ export function Recurring() {
           Allowance & subscriptions
         </h2>
         <p className="mt-2 max-w-2xl text-[var(--muted)]">
-          Set your weekly allowance, auto-post it on a day you choose, and manage subscriptions that
-          spend from Spending only.
+          Set your weekly allowance, auto-post it on a day you choose, and manage subscriptions —
+          pick which pot pays, or combine two pots when one isn’t enough.
         </p>
       </header>
 
@@ -189,7 +199,8 @@ export function Recurring() {
           <div>
             <h3 className="text-lg font-bold">Subscriptions</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Charged from Spending. Skipped (with a notice) if there isn’t enough.
+              Choose a pot, or combine with a second. If both are still short on due day, you get a
+              notification to change them.
             </p>
           </div>
           <button
@@ -201,6 +212,8 @@ export function Recurring() {
               setSubName('')
               setSubAmount('')
               setSubCadence('monthly')
+              setSubFrom('spending')
+              setSubCombine('')
               setSubNext(zonedDateISO(state.settings.timezone || 'America/Chicago'))
             }}
           >
@@ -226,7 +239,12 @@ export function Recurring() {
                       {!s.enabled ? ' · paused' : ''}
                     </span>
                   </p>
-                  <p className="text-xs text-[var(--muted)]">Next {s.nextDueDate}</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Next {s.nextDueDate} · from {ACCOUNT_LABELS[s.fromAccount || 'spending']}
+                    {s.combineWith && s.combineWith !== s.fromAccount
+                      ? ` + ${ACCOUNT_LABELS[s.combineWith]}`
+                      : ''}
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -238,6 +256,10 @@ export function Recurring() {
                       setSubName(s.name)
                       setSubAmount(fromCents(s.amountCents).toFixed(2))
                       setSubCadence(s.cadence)
+                      setSubFrom(s.fromAccount || 'spending')
+                      setSubCombine(
+                        s.combineWith && s.combineWith !== s.fromAccount ? s.combineWith : '',
+                      )
                       setSubNext(s.nextDueDate)
                     }}
                   >
@@ -270,6 +292,8 @@ export function Recurring() {
               }
               const id = subEditingId || newId()
               const existing = state.settings.subscriptions.find((s) => s.id === id)
+              const combineWith =
+                subCombine && subCombine !== subFrom ? subCombine : undefined
               const sub: Subscription = {
                 id,
                 name,
@@ -278,6 +302,8 @@ export function Recurring() {
                 anchorDate: existing?.anchorDate || subNext,
                 nextDueDate: subNext,
                 enabled: existing?.enabled ?? true,
+                fromAccount: subFrom,
+                ...(combineWith ? { combineWith } : {}),
                 createdAt: existing?.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               }
@@ -327,6 +353,38 @@ export function Recurring() {
                   { value: 'yearly', label: 'Yearly' },
                 ]}
               />
+            </div>
+            <div>
+              <label className="label">Money comes from</label>
+              <NativeSelect
+                aria-label="Pay from pot"
+                value={subFrom}
+                onChange={(v) => {
+                  const next = v as AccountId
+                  setSubFrom(next)
+                  if (subCombine === next) setSubCombine('')
+                }}
+                options={POT_OPTIONS}
+              />
+            </div>
+            <div>
+              <label className="label">If short, also use</label>
+              <NativeSelect
+                aria-label="Combine with second pot"
+                value={subCombine}
+                onChange={(v) => setSubCombine(v === '' ? '' : (v as AccountId))}
+                options={[
+                  { value: '', label: 'Don’t combine — notify me' },
+                  ...POT_OPTIONS.filter((p) => p.value !== subFrom).map((p) => ({
+                    value: p.value,
+                    label: `Combine with ${p.label}`,
+                  })),
+                ]}
+              />
+              <p className="mt-1.5 text-xs text-[var(--muted)]">
+                Primary pot is used first; the second tops up. If both are still short, Fundly
+                notifies you to change pots here.
+              </p>
             </div>
             <div>
               <label className="label">Next due</label>

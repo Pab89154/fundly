@@ -45,7 +45,7 @@ export type SpendCategory =
   | 'apple_cash'
   | 'other'
 
-/** Spending-only recurring bill (Netflix, apps, …). */
+/** Recurring bill (Netflix, apps, …) charged from a chosen pot. */
 export interface Subscription {
   id: string
   name: string
@@ -56,6 +56,10 @@ export interface Subscription {
   /** YYYY-MM-DD next due (advanced after each apply). */
   nextDueDate: string
   enabled: boolean
+  /** Which pot pays first — defaults to Spending. */
+  fromAccount: AccountId
+  /** Optional second pot to top up if the primary is short. */
+  combineWith?: AccountId
   category?: SpendCategory | string
   createdAt: string
   updatedAt?: string
@@ -217,6 +221,15 @@ export function normalizeSubscriptions(raw: unknown): Subscription[] {
     const anchorDate = String(o.anchorDate || '').slice(0, 10)
     const nextDueDate = String(o.nextDueDate || anchorDate).slice(0, 10)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(anchorDate) || !/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) continue
+    const parsePot = (raw: unknown): AccountId | undefined => {
+      const v = String(raw || '')
+      if (v === 'iphone' || v === 'extra' || v === 'charity' || v === 'spending') return v
+      return undefined
+    }
+    const fromAccount = parsePot(o.fromAccount) || 'spending'
+    const combineRaw = parsePot(o.combineWith)
+    const combineWith =
+      combineRaw && combineRaw !== fromAccount ? combineRaw : undefined
     seen.add(id)
     out.push({
       id,
@@ -226,6 +239,8 @@ export function normalizeSubscriptions(raw: unknown): Subscription[] {
       anchorDate,
       nextDueDate,
       enabled: o.enabled !== false,
+      fromAccount,
+      ...(combineWith ? { combineWith } : {}),
       category: o.category ? String(o.category) : undefined,
       createdAt: String(o.createdAt || new Date().toISOString()),
       updatedAt: o.updatedAt ? String(o.updatedAt) : undefined,

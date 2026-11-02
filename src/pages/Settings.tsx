@@ -945,7 +945,7 @@ export function Settings() {
             ['notifyStreak', 'Streak wins + “keep your streak” reminders'],
             ['celebrationSound', 'Play a soft sound on unlock / level-up'],
             ['notifyAllowance', 'When allowance is added'],
-            ['notifySubscriptionFail', 'When a subscription can’t be paid'],
+            ['notifySubscriptionFail', 'When a subscription’s pot(s) are short'],
             ['notifyAppleMismatch', 'When Apple Cash doesn’t match'],
             ['notifyWeeklyReview', 'Weekly review — “See this week!”'],
           ] as const
