@@ -46,11 +46,29 @@ function baseState(): AppState {
     now: new Date('2026-11-04T18:00:00Z'),
   })
   const midAllow = midweek.events.filter((e) => e.kind === 'allowance')
-  assert(midAllow.length === 1 && midAllow[0]!.date === '2026-11-02', 'mid-week posts only last due day')
+  assert(midAllow.length === 1 && midAllow[0]!.date === '2026-11-02', 'mid-week posts this week’s Monday')
+  assert(last.externalId === 'recurring:allowance:week:2026-11-02', 'week-keyed id')
   const split = allocateCents(toCents(10), state.settings.allocation)
   const tx = next.transactions.find((t) => t.externalId === last.externalId)
   assert(tx?.allocation?.iphone === split.iphone, '60% goal')
   assert(tx?.allocation?.spending === split.spending, '20% spending')
+  // Sunday still in Mon–Sun week that already has legacy day-keyed allowance
+  const sundayState = baseState()
+  sundayState.transactions.push({
+    id: 'legacy',
+    type: 'income',
+    amountCents: toCents(10),
+    date: '2026-11-01',
+    source: 'allowance',
+    allocation: split,
+    externalId: 'recurring:allowance:2026-11-01',
+    createdAt: new Date().toISOString(),
+  })
+  const sun = applyDueRecurring(sundayState, {
+    todayISO: '2026-11-01',
+    now: new Date('2026-11-01T18:00:00Z'),
+  })
+  assert(sun.events.filter((e) => e.kind === 'allowance').length === 0, 'legacy week blocks re-post')
 }
 
 {

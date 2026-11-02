@@ -862,6 +862,7 @@ export function Settings() {
         ))}
         <div>
           <label className="label">Weekly review day</label>
+          <p className="mb-2 text-xs text-[var(--muted)]">Weeks run Monday–Sunday.</p>
           <NativeSelect
             aria-label="Weekly review weekday"
             value={String(state.settings.reminders.weeklyReviewWeekday)}

@@ -64,7 +64,7 @@ function emptyState(): AppStateJson {
         notifySubscriptionFail: true,
         notifyAppleMismatch: true,
         notifyWeeklyReview: true,
-        weeklyReviewWeekday: 0,
+        weeklyReviewWeekday: 1,
       },
       pushSubscription: null,
       lastWeeklyReviewNotifiedKey: null,

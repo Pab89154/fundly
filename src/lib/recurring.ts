@@ -56,15 +56,32 @@ export function advanceDueDate(due: string, cadence: Subscription['cadence']): s
   return addMonthsISO(due, 12)
 }
 
-function allowanceExternalId(dueDate: string): string {
-  return `recurring:allowance:${dueDate}`
+/** One allowance per Mon–Sun week — keyed by that week’s Monday. */
+export function allowanceWeekExternalId(anyDayInWeek: string): string {
+  return `recurring:allowance:week:${mondayOfISOWeek(anyDayInWeek)}`
 }
 
 function subscriptionExternalId(id: string, dueDate: string): string {
   return `recurring:sub:${id}:${dueDate}`
 }
 
-/** Monday (local calendar) of the week containing `iso` (YYYY-MM-DD). */
+/** True if this Mon–Sun week already has an allowance (new or legacy externalId). */
+export function hasAllowanceForWeek(transactions: Transaction[], anyDayInWeek: string): boolean {
+  const monday = mondayOfISOWeek(anyDayInWeek)
+  const weekExt = allowanceWeekExternalId(monday)
+  for (const t of transactions) {
+    const ext = String(t.externalId || '')
+    if (ext === weekExt) return true
+    // Legacy: recurring:allowance:YYYY-MM-DD (day-keyed)
+    if (ext.startsWith('recurring:allowance:') && !ext.startsWith('recurring:allowance:week:')) {
+      const day = ext.slice('recurring:allowance:'.length)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(day) && mondayOfISOWeek(day) === monday) return true
+    }
+  }
+  return false
+}
+
+/** Monday of the Mon–Sun week containing `iso` (YYYY-MM-DD). */
 export function mondayOfISOWeek(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   const dt = new Date(y!, m! - 1, d!)
@@ -101,39 +118,31 @@ export function applyDueRecurring(
     reminders: { ...state.settings.reminders },
   }
 
-  // --- Auto allowance (weekly on configured weekday) ---
-  // Only the most recent due day ≤ today — never backfill prior weeks (that invented cash).
+  // --- Auto allowance (weekly on configured weekday; weeks are Mon–Sun) ---
+  // Posts at most once per week after the chosen weekday has arrived — never prior weeks.
   if (settings.allowanceAuto.enabled && settings.weeklyAllowanceCents > 0) {
     const targetWd = settings.allowanceAuto.weekday
-    let due = today
-    for (let i = 0; i < 7; i++) {
-      const [y, m, d] = due.split('-').map(Number)
-      const dt = new Date(y!, m! - 1, d!)
-      if (dt.getDay() === targetWd) break
-      due = addDaysISO(due, -1)
-    }
-    const [y, m, d] = due.split('-').map(Number)
-    const dueDt = new Date(y!, m! - 1, d!)
-    if (dueDt.getDay() === targetWd && compareISODate(due, today) <= 0) {
-      const ext = allowanceExternalId(due)
-      if (!hasExternalId(transactions, ext)) {
-        const cents = settings.weeklyAllowanceCents
-        const allocation = allocateCents(cents, settings.allocation)
-        const tx: Transaction = {
-          id: newTxId('allow'),
-          type: 'income',
-          amountCents: cents,
-          date: due,
-          description: 'Weekly allowance (auto)',
-          source: 'allowance',
-          allocation,
-          externalId: ext,
-          tags: ['recurring', 'allowance'],
-          createdAt: new Date().toISOString(),
-        }
-        transactions.push(tx)
-        events.push({ kind: 'allowance', date: due, amountCents: cents, externalId: ext })
+    const weekMonday = mondayOfISOWeek(today)
+    const fromMonday = targetWd === 0 ? 6 : targetWd - 1
+    const due = addDaysISO(weekMonday, fromMonday)
+    if (compareISODate(due, today) <= 0 && !hasAllowanceForWeek(transactions, today)) {
+      const cents = settings.weeklyAllowanceCents
+      const allocation = allocateCents(cents, settings.allocation)
+      const ext = allowanceWeekExternalId(today)
+      const tx: Transaction = {
+        id: newTxId('allow'),
+        type: 'income',
+        amountCents: cents,
+        date: due,
+        description: 'Weekly allowance (auto)',
+        source: 'allowance',
+        allocation,
+        externalId: ext,
+        tags: ['recurring', 'allowance'],
+        createdAt: new Date().toISOString(),
       }
+      transactions.push(tx)
+      events.push({ kind: 'allowance', date: due, amountCents: cents, externalId: ext })
     }
   }
 
@@ -219,25 +228,20 @@ export function applyDueRecurring(
   }
 }
 
-/** One-tap / manual allowance for the week containing `today` (deduped). */
+/** One-tap / manual allowance for the Mon–Sun week containing `today` (deduped). */
 export function logWeeklyAllowanceTx(
   state: AppState,
   opts?: { todayISO?: string; now?: Date },
 ): { ok: true; state: AppState } | { ok: false; error: string } {
   const tz = state.settings.timezone || 'America/Chicago'
   const today = opts?.todayISO ?? zonedDateISO(tz, opts?.now ?? new Date())
-  const monday = mondayOfISOWeek(today)
-  // Weekday Sun=0 → offset from Monday
-  const wd = state.settings.allowanceAuto.weekday
-  const fromMonday = wd === 0 ? 6 : wd - 1
-  const dueDate = addDaysISO(monday, fromMonday)
-  const ext = allowanceExternalId(dueDate)
-  if (hasExternalId(state.transactions, ext)) {
+  if (hasAllowanceForWeek(state.transactions, today)) {
     return { ok: false, error: 'Allowance for this week is already logged.' }
   }
   const cents = state.settings.weeklyAllowanceCents
   if (cents <= 0) return { ok: false, error: 'Set a weekly allowance amount in Settings first.' }
   const allocation = allocateCents(cents, state.settings.allocation)
+  const ext = allowanceWeekExternalId(today)
   const tx: Transaction = {
     id: newTxId('allow'),
     type: 'income',

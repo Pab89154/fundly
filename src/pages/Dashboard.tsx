@@ -187,7 +187,7 @@ export function Dashboard() {
               This week
             </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              {weekStart} → {weekEnd}
+              Mon–Sun · {weekStart} → {weekEnd}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

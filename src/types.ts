@@ -63,7 +63,7 @@ export interface Subscription {
 
 export interface AllowanceAuto {
   enabled: boolean
-  /** 0=Sun … 6=Sat — day to post weekly allowance. */
+  /** 0=Sun … 6=Sat — day to post weekly allowance (week itself is Mon–Sun). */
   weekday: number
 }
 
@@ -75,7 +75,7 @@ export interface ReminderSettings {
   notifyWeeklyReview: boolean
   /** Browser notification when a Goal milestone (or full goal) unlocks. */
   notifyMilestone: boolean
-  /** 0=Sun … 6=Sat — “See this week!” day. */
+  /** 0=Sun … 6=Sat — “See this week!” day (default Monday; weeks are Mon–Sun). */
   weeklyReviewWeekday: number
 }
 
@@ -247,7 +247,7 @@ export function normalizeReminders(raw: unknown): ReminderSettings {
     notifyAppleMismatch: o.notifyAppleMismatch !== false,
     notifyWeeklyReview: o.notifyWeeklyReview !== false,
     notifyMilestone: o.notifyMilestone !== false,
-    weeklyReviewWeekday: wd >= 0 && wd <= 6 ? wd : 0,
+    weeklyReviewWeekday: wd >= 0 && wd <= 6 ? wd : 1,
   }
 }
 
@@ -424,7 +424,7 @@ export const DEFAULT_SETTINGS: Settings = {
     notifyAppleMismatch: true,
     notifyWeeklyReview: true,
     notifyMilestone: true,
-    weeklyReviewWeekday: 0,
+    weeklyReviewWeekday: 1,
   },
   pushSubscription: null,
   lastWeeklyReviewNotifiedKey: null,
