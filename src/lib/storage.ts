@@ -13,6 +13,7 @@ import {
   type PushSubscriptionJSON,
 } from '../types'
 import { computeBalances } from './balances'
+import { normalizeXpHistory } from './gamification'
 // PushSubscriptionJSON is our local type alias in types.ts
 import { isValidTimeZone } from './timezone'
 
@@ -62,8 +63,26 @@ export function loadState(): AppState {
         celebratedMilestoneIds: migrated.celebratedMilestoneIds,
         achievementHistory: migrated.achievementHistory,
         xpTotal: Math.max(0, Math.trunc(Number(parsed.settings.xpTotal) || 0)),
+        xpHistory: normalizeXpHistory(parsed.settings.xpHistory),
         lastStreakXpWeekKey: parsed.settings.lastStreakXpWeekKey
           ? String(parsed.settings.lastStreakXpWeekKey)
+          : null,
+        lastHabitWeekXpKey: parsed.settings.lastHabitWeekXpKey
+          ? String(parsed.settings.lastHabitWeekXpKey)
+          : parsed.settings.lastStreakXpWeekKey
+            ? String(parsed.settings.lastStreakXpWeekKey)
+            : null,
+        lastWeeklyReviewXpKey: parsed.settings.lastWeeklyReviewXpKey
+          ? String(parsed.settings.lastWeeklyReviewXpKey)
+          : null,
+        lastStreak7XpKey: parsed.settings.lastStreak7XpKey
+          ? String(parsed.settings.lastStreak7XpKey)
+          : null,
+        lastStreak30XpKey: parsed.settings.lastStreak30XpKey
+          ? String(parsed.settings.lastStreak30XpKey)
+          : null,
+        lastStreakNudgeKey: parsed.settings.lastStreakNudgeKey
+          ? String(parsed.settings.lastStreakNudgeKey)
           : null,
         printxOpenOwedCents: Number(parsed.settings.printxOpenOwedCents) || 0,
         printxOpenResolvedCents: Number(parsed.settings.printxOpenResolvedCents) || 0,

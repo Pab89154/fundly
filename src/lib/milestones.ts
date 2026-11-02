@@ -8,7 +8,7 @@ import {
   MILESTONE_FRACS,
   type MilestoneMetaMap,
 } from './money'
-import { awardXp, xpForMilestoneUnlock } from './gamification'
+import { tryAwardXp, XP } from './gamification'
 
 export type MilestoneIconKey = 'spark' | 'rocket' | 'flag' | 'medal' | 'flame' | 'crown'
 
@@ -23,7 +23,8 @@ export const MILESTONE_ICON_KEYS: MilestoneIconKey[] = [
 
 export type GoalMilestone = GoalMilestoneT
 
-export type CelebrationPayload = {
+export type MilestoneCelebration = {
+  type: 'milestone'
   id: string
   cents: number
   title: string
@@ -31,6 +32,15 @@ export type CelebrationPayload = {
   icon?: MilestoneIconKey
   isFinal: boolean
 }
+
+export type LevelUpCelebration = {
+  type: 'levelUp'
+  level: number
+  name: string
+  xpTotal: number
+}
+
+export type CelebrationPayload = MilestoneCelebration | LevelUpCelebration
 
 const DEFAULT_IDS = [
   'm_first_spark',
@@ -266,10 +276,10 @@ export function applyGoalUnlocks(
 
   const now = new Date().toISOString()
   const maxCents = Math.max(...list.map((m) => m.cents))
+  let nextSettings: Settings = { ...settings }
   const history = [...(settings.achievementHistory || [])]
   const newIds = [...(settings.celebratedMilestoneIds || [])]
   const newCents = [...(settings.celebratedMilestones || [])]
-  let xp = Math.max(0, Math.trunc(settings.xpTotal || 0))
 
   for (const m of crossed) {
     if (!histIds.has(m.id)) {
@@ -284,11 +294,27 @@ export function applyGoalUnlocks(
     }
     if (!newIds.includes(m.id)) newIds.push(m.id)
     if (!newCents.includes(m.cents)) newCents.push(m.cents)
-    xp = awardXp(xp, xpForMilestoneUnlock(m.cents >= maxCents))
+    const awarded = tryAwardXp(nextSettings, {
+      id: `milestone:${m.id}`,
+      kind: 'milestone',
+      amount: XP.milestoneUnlock,
+      label: m.title,
+      refId: m.id,
+      at: now,
+    })
+    nextSettings = awarded.settings
+  }
+
+  nextSettings = {
+    ...nextSettings,
+    achievementHistory: history,
+    celebratedMilestoneIds: newIds,
+    celebratedMilestones: newCents,
   }
 
   const last = crossed[crossed.length - 1]!
   const celebration: CelebrationPayload = {
+    type: 'milestone',
     id: last.id,
     cents: last.cents,
     title: last.title,
@@ -299,10 +325,11 @@ export function applyGoalUnlocks(
 
   return {
     settingsPatch: {
-      achievementHistory: history,
-      celebratedMilestoneIds: newIds,
-      celebratedMilestones: newCents,
-      xpTotal: xp,
+      achievementHistory: nextSettings.achievementHistory,
+      celebratedMilestoneIds: nextSettings.celebratedMilestoneIds,
+      celebratedMilestones: nextSettings.celebratedMilestones,
+      xpTotal: nextSettings.xpTotal,
+      xpHistory: nextSettings.xpHistory,
     },
     celebration,
     crossed,

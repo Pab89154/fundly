@@ -25,7 +25,18 @@ import {
   type SpendSlice,
 } from '../lib/money'
 import { computeBalances } from '../lib/balances'
-import { awardXp, streakXpIfDue, XP } from '../lib/gamification'
+import {
+  activityStreakDays,
+  habitWeekXpIfDue,
+  isGenuineActivityTx,
+  levelFromXp,
+  normalizeXpHistory,
+  streakNudgeIfDue,
+  streakThresholdXpIfDue,
+  tryAwardXp,
+  weeklyReviewXpIfDue,
+  XP,
+} from '../lib/gamification'
 import { applyGoalUnlocks, type CelebrationPayload } from '../lib/milestones'
 import { applyDueRecurring, logWeeklyAllowanceTx } from '../lib/recurring'
 import { clearState, loadState, newId, saveState } from '../lib/storage'
@@ -230,6 +241,8 @@ type MoneyContextValue = {
   resetAllData: () => void
   celebration: CelebrationPayload | null
   dismissCelebration: () => void
+  /** Award weekly-review XP once when This Week is viewed. */
+  markWeeklyReviewSeen: () => void
   /** True when timezone is unset / detection failed — show picker. */
   needsTimezonePrompt: boolean
   setTimezoneManual: (tz: string) => { ok: true } | { ok: false; error: string }
@@ -269,35 +282,150 @@ function normalizeLoadedSettings(settings: Settings, goalBalanceCents = 0): Sett
       ? settings.printxIgnoredEventIds
       : [],
     xpTotal: Math.max(0, Math.trunc(Number(settings.xpTotal) || 0)),
+    xpHistory: normalizeXpHistory(settings.xpHistory),
     lastStreakXpWeekKey: settings.lastStreakXpWeekKey
       ? String(settings.lastStreakXpWeekKey)
       : null,
+    lastHabitWeekXpKey: settings.lastHabitWeekXpKey
+      ? String(settings.lastHabitWeekXpKey)
+      : settings.lastStreakXpWeekKey
+        ? String(settings.lastStreakXpWeekKey)
+        : null,
+    lastWeeklyReviewXpKey: settings.lastWeeklyReviewXpKey
+      ? String(settings.lastWeeklyReviewXpKey)
+      : null,
+    lastStreak7XpKey: settings.lastStreak7XpKey ? String(settings.lastStreak7XpKey) : null,
+    lastStreak30XpKey: settings.lastStreak30XpKey ? String(settings.lastStreak30XpKey) : null,
+    lastStreakNudgeKey: settings.lastStreakNudgeKey ? String(settings.lastStreakNudgeKey) : null,
   }
   const migrated = migrateAchievementState(base, goalBalanceCents)
   return { ...base, ...migrated }
 }
 
-function withGoalUnlocks(
+function preferCelebration(
+  milestone: CelebrationPayload | null,
+  levelUp: CelebrationPayload | null,
+): CelebrationPayload | null {
+  if (milestone?.type === 'milestone' && milestone.isFinal) return milestone
+  if (levelUp) return levelUp
+  return milestone
+}
+
+function applyGamification(
   settings: Settings,
   transactions: Transaction[],
   prevIphone: number,
   nextIphone: number,
-  opts?: { incomeXp?: boolean },
+  opts?: { awardTxs?: Transaction[] },
 ): { settings: Settings; celebration: CelebrationPayload | null } {
-  const unlock = applyGoalUnlocks(settings, prevIphone, nextIphone)
-  let next: Settings = { ...settings, ...unlock.settingsPatch }
-  let xp = Math.max(0, Math.trunc(next.xpTotal || 0))
-  if (opts?.incomeXp) {
-    xp = awardXp(xp, XP.incomeLogged)
+  const beforeLevel = levelFromXp(settings.xpTotal || 0).level
+  let next: Settings = { ...settings }
+
+  for (const tx of opts?.awardTxs || []) {
+    if (!isGenuineActivityTx(tx) && !(tx.source === 'printx' && tx.settledAt !== null)) continue
+    if (tx.source === 'printx' || (tx.type === 'import' && String(tx.externalId || '').startsWith('settle:'))) {
+      if (tx.settledAt === null) continue
+      const r = tryAwardXp(next, {
+        id: `printx:${tx.id}`,
+        kind: 'printx',
+        amount: XP.printxPayment,
+        label: 'PrintX payment recorded',
+        refId: tx.id,
+      })
+      next = r.settings
+      continue
+    }
+    if (tx.type === 'income') {
+      const r = tryAwardXp(next, {
+        id: `income:${tx.id}`,
+        kind: 'income',
+        amount: XP.genuineIncome,
+        label: 'Income logged',
+        refId: tx.id,
+      })
+      next = r.settings
+      continue
+    }
+    if (tx.type === 'spending' || tx.type === 'apple_cash_purchase') {
+      const r = tryAwardXp(next, {
+        id: `spend:${tx.id}`,
+        kind: 'spend',
+        amount: XP.purchase,
+        label: 'Purchase recorded',
+        refId: tx.id,
+      })
+      next = r.settings
+    }
   }
+
+  const unlock = applyGoalUnlocks(next, prevIphone, nextIphone)
+  next = { ...next, ...unlock.settingsPatch }
+
   const tz = next.timezone || 'America/Chicago'
-  const streak = streakXpIfDue(next.lastStreakXpWeekKey, transactions, tz)
-  if (streak) {
-    xp = awardXp(xp, streak.xp)
-    next = { ...next, lastStreakXpWeekKey: streak.weekKey }
+  const pushOn = Boolean(next.reminders?.webPushEnabled)
+  const streakNotify = next.reminders?.notifyStreak !== false
+
+  const habit = habitWeekXpIfDue(next, transactions, tz)
+  if (habit) {
+    const r = tryAwardXp(next, {
+      id: habit.id,
+      kind: 'habit_week',
+      amount: XP.weeklySavingsHabit,
+      label: 'Weekly savings habit',
+      refId: habit.weekKey,
+    })
+    next = {
+      ...r.settings,
+      lastHabitWeekXpKey: habit.weekKey,
+      lastStreakXpWeekKey: habit.weekKey,
+    }
+    if (r.awarded && pushOn && streakNotify) {
+      queueMicrotask(() =>
+        maybeNotify(
+          'Weekly savings habit!',
+          `+${XP.weeklySavingsHabit} XP — your Goal pot grew this week. Keep marking income in Fundly.`,
+          { tag: habit.id, url: '/savings' },
+        ),
+      )
+    }
   }
-  next = { ...next, xpTotal: xp }
-  return { settings: next, celebration: unlock.celebration }
+
+  const days = activityStreakDays(transactions, tz)
+  for (const s of streakThresholdXpIfDue(next, days, tz)) {
+    const r = tryAwardXp(next, {
+      id: s.id,
+      kind: s.kind,
+      amount: s.amount,
+      label: s.label,
+      refId: s.day,
+    })
+    next = { ...r.settings, [s.keyField]: s.day }
+    if (r.awarded && pushOn && streakNotify) {
+      queueMicrotask(() =>
+        maybeNotify(
+          s.kind === 'streak30' ? '30-day streak!' : '7-day streak!',
+          `+${s.amount} XP — keep earning and mark it in Fundly.`,
+          { tag: s.id, url: '/savings' },
+        ),
+      )
+    }
+  }
+
+  const after = levelFromXp(next.xpTotal || 0)
+  let levelUp: CelebrationPayload | null = null
+  if (after.level > beforeLevel) {
+    levelUp = {
+      type: 'levelUp',
+      level: after.level,
+      name: after.name,
+      xpTotal: next.xpTotal || 0,
+    }
+  }
+
+  return {
+    settings: next,
+    celebration: preferCelebration(unlock.celebration, levelUp),
+  }
 }
 
 const MoneyContext = createContext<MoneyContextValue | null>(null)
@@ -411,29 +539,46 @@ export function MoneyProvider({
     setState((prev) => {
       if (!isValidTimeZone(prev.settings.timezone)) return prev
       const { state: next, events } = applyDueRecurring(prev)
-      if (events.length === 0) return prev
+      let settings = next.settings
+      const pushOn = settings.reminders.webPushEnabled
+
       for (const ev of events) {
-        const pushOn = next.settings.reminders.webPushEnabled
-        if (pushOn && ev.kind === 'allowance' && next.settings.reminders.notifyAllowance) {
+        if (pushOn && ev.kind === 'allowance' && settings.reminders.notifyAllowance) {
           maybeNotify('Allowance added', `+$${(ev.amountCents / 100).toFixed(2)} split into your pots.`, {
             tag: ev.externalId,
+            url: '/',
           })
         }
-        if (pushOn && ev.kind === 'subscription_skip' && next.settings.reminders.notifySubscriptionFail) {
+        if (pushOn && ev.kind === 'subscription_skip' && settings.reminders.notifySubscriptionFail) {
           maybeNotify(
             'Subscription skipped',
             `${ev.name}: not enough Spending money.`,
-            { tag: `skip-${ev.subscriptionId}-${ev.date}` },
+            { tag: `skip-${ev.subscriptionId}-${ev.date}`, url: '/recurring' },
           )
         }
-        if (pushOn && ev.kind === 'weekly_review' && next.settings.reminders.notifyWeeklyReview) {
+        if (pushOn && ev.kind === 'weekly_review' && settings.reminders.notifyWeeklyReview) {
           maybeNotify('See this week!', 'Open Fundly to see how you did.', {
             tag: ev.weekKey,
             url: '/#this-week',
           })
         }
       }
-      return next
+
+      // Keep-your-streak nudge: earn money and mark it in Fundly today
+      if (pushOn && settings.reminders.notifyStreak !== false) {
+        const nudge = streakNudgeIfDue(settings, next.transactions, settings.timezone)
+        if (nudge) {
+          maybeNotify(
+            `Keep your ${nudge.streakDays}-day streak!`,
+            'Earn more money and mark it in Fundly today so your streak doesn’t break.',
+            { tag: `streak-nudge-${nudge.today}`, url: '/income' },
+          )
+          settings = { ...settings, lastStreakNudgeKey: nudge.today }
+        }
+      }
+
+      if (events.length === 0 && settings === next.settings) return prev
+      return { ...next, settings }
     })
   }, [cloudHydrated, state.settings.timezone])
 
@@ -450,15 +595,12 @@ export function MoneyProvider({
       const nextTxs = [...prev.transactions, ...txs]
       const nextBalances = computeBalances(nextTxs)
       const prevIphone = celebrateFrom ?? computeBalances(prev.transactions).iphone
-      const incomeXp = txs.some(
-        (t) => t.type === 'income' || t.type === 'import' || t.type === 'opening',
-      )
-      const { settings, celebration: cele } = withGoalUnlocks(
+      const { settings, celebration: cele } = applyGamification(
         prev.settings,
         nextTxs,
         prevIphone,
         nextBalances.iphone,
-        { incomeXp },
+        { awardTxs: txs },
       )
       if (cele) queueMicrotask(() => setCelebration(cele))
       return { ...prev, transactions: nextTxs, settings }
@@ -812,7 +954,7 @@ export function MoneyProvider({
       }
 
       const iphoneBal = computeBalances(txs).iphone
-      const unlocked = withGoalUnlocks(prev.settings, txs, 0, iphoneBal).settings
+      const unlocked = applyGamification(prev.settings, txs, 0, iphoneBal).settings
       return {
         ...prev,
         transactions: txs,
@@ -977,16 +1119,19 @@ export function MoneyProvider({
       }
       if (imported > 0) {
         const iphoneAfter = computeBalances(txs).iphone
-        const { settings: unlocked, celebration: cele } = withGoalUnlocks(
+        const newPrintx = txs.filter((t) => !base.transactions.some((o) => o.id === t.id))
+        const { settings: unlocked, celebration: cele } = applyGamification(
           settingsOut,
           txs,
           iphoneBefore,
           iphoneAfter,
-          { incomeXp: true },
+          { awardTxs: newPrintx },
         )
         settingsOut = unlocked
-        if (cele) {
+        if (cele?.type === 'milestone') {
           newMilestoneCents.push(cele.cents)
+          queueMicrotask(() => setCelebration(cele))
+        } else if (cele) {
           queueMicrotask(() => setCelebration(cele))
         }
       }
@@ -1093,11 +1238,12 @@ export function MoneyProvider({
       const copy = [...prev.transactions]
       copy[idx] = nextTx
       const iphoneAfter = computeBalances(copy).iphone
-      const { settings, celebration: cele } = withGoalUnlocks(
+      const { settings, celebration: cele } = applyGamification(
         prev.settings,
         copy,
         iphoneBefore,
         iphoneAfter,
+        { awardTxs: [{ ...nextTx, settledAt: nextTx.settledAt }] },
       )
       if (cele) queueMicrotask(() => setCelebration(cele))
       return { ...prev, transactions: copy, settings }
@@ -1126,11 +1272,13 @@ export function MoneyProvider({
           : tx,
       )
       const iphoneAfter = computeBalances(copy).iphone
-      const { settings, celebration: cele } = withGoalUnlocks(
+      const settledTxs = copy.filter((t) => pendingIds.has(t.id))
+      const { settings, celebration: cele } = applyGamification(
         prev.settings,
         copy,
         iphoneBefore,
         iphoneAfter,
+        { awardTxs: settledTxs },
       )
       if (cele) queueMicrotask(() => setCelebration(cele))
       return { ...prev, transactions: copy, settings }
@@ -1216,12 +1364,12 @@ export function MoneyProvider({
         }
       }
 
-      const { settings, celebration: cele } = withGoalUnlocks(
+      // Statement imports are not genuine live activity — milestones only, no income/spend XP.
+      const { settings, celebration: cele } = applyGamification(
         snapshot.settings,
         txs,
         iphoneBefore,
         running.iphone,
-        { incomeXp: true },
       )
       if (cele) queueMicrotask(() => setCelebration(cele))
 
@@ -1297,6 +1445,44 @@ export function MoneyProvider({
     return { ok: true as const, movedCents }
   }, [])
 
+  const markWeeklyReviewSeen = useCallback(() => {
+    setState((prev) => {
+      const tz = prev.settings.timezone || 'America/Chicago'
+      const due = weeklyReviewXpIfDue(prev.settings, tz)
+      if (!due) return prev
+      const beforeLevel = levelFromXp(prev.settings.xpTotal || 0).level
+      const awarded = tryAwardXp(prev.settings, {
+        id: due.id,
+        kind: 'review',
+        amount: XP.weeklyReview,
+        label: 'Weekly money review',
+        refId: due.weekKey,
+      })
+      if (!awarded.awarded) {
+        return {
+          ...prev,
+          settings: { ...prev.settings, lastWeeklyReviewXpKey: due.weekKey },
+        }
+      }
+      const next = {
+        ...awarded.settings,
+        lastWeeklyReviewXpKey: due.weekKey,
+      }
+      const after = levelFromXp(next.xpTotal || 0)
+      if (after.level > beforeLevel) {
+        queueMicrotask(() =>
+          setCelebration({
+            type: 'levelUp',
+            level: after.level,
+            name: after.name,
+            xpTotal: next.xpTotal || 0,
+          }),
+        )
+      }
+      return { ...prev, settings: next }
+    })
+  }, [])
+
   const resetAllData = useCallback(() => {
     clearState()
     setState(createEmptyState())
@@ -1344,6 +1530,7 @@ export function MoneyProvider({
     resetAllData,
     celebration,
     dismissCelebration: () => setCelebration(null),
+    markWeeklyReviewSeen,
     needsTimezonePrompt,
     setTimezoneManual,
     applyRecurringNow,

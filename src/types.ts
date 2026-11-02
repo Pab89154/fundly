@@ -75,6 +75,10 @@ export interface ReminderSettings {
   notifyWeeklyReview: boolean
   /** Browser notification when a Goal milestone (or full goal) unlocks. */
   notifyMilestone: boolean
+  /** Browser notification on XP level-up. */
+  notifyLevelUp: boolean
+  /** Streak wins + “keep your streak” nudges. */
+  notifyStreak: boolean
   /** Soft celebration chime (off by default). */
   celebrationSound: boolean
   /** 0=Sun … 6=Sat — “See this week!” day (default Monday; weeks are Mon–Sun). */
@@ -249,6 +253,8 @@ export function normalizeReminders(raw: unknown): ReminderSettings {
     notifyAppleMismatch: o.notifyAppleMismatch !== false,
     notifyWeeklyReview: o.notifyWeeklyReview !== false,
     notifyMilestone: o.notifyMilestone !== false,
+    notifyLevelUp: o.notifyLevelUp !== false,
+    notifyStreak: o.notifyStreak !== false,
     celebrationSound: Boolean(o.celebrationSound),
     weeklyReviewWeekday: wd >= 0 && wd <= 6 ? wd : 1,
   }
@@ -311,6 +317,26 @@ export type AchievementRecord = {
   balanceAtUnlock: number
 }
 
+export type XpKind =
+  | 'income'
+  | 'spend'
+  | 'milestone'
+  | 'review'
+  | 'habit_week'
+  | 'printx'
+  | 'streak7'
+  | 'streak30'
+  | 'other'
+
+export type XpHistoryEntry = {
+  id: string
+  kind: XpKind
+  amount: number
+  at: string
+  label: string
+  refId?: string
+}
+
 /** One active savings goal at a time (null = no goal yet). */
 export interface ActiveGoal {
   name: string
@@ -352,10 +378,24 @@ export interface Settings {
   celebratedMilestoneIds: string[]
   /** Unlock history for the achievement gallery. */
   achievementHistory: AchievementRecord[]
-  /** Running XP score (income, unlocks, streak weeks). */
+  /** Running XP score (never decreases). */
   xpTotal: number
-  /** Monday ISO week key last awarded streak XP for. */
+  /** Persistent XP award ledger (dedupe by entry.id). */
+  xpHistory: XpHistoryEntry[]
+  /**
+   * @deprecated Prefer habit_week keys in xpHistory — Monday ISO of last weekly habit XP.
+   */
   lastStreakXpWeekKey: string | null
+  /** Monday ISO of last weekly Goal-pot habit XP. */
+  lastHabitWeekXpKey: string | null
+  /** ISO week key (2026-W45) of last weekly-review XP. */
+  lastWeeklyReviewXpKey: string | null
+  /** Local day ISO when 7-day streak XP was awarded. */
+  lastStreak7XpKey: string | null
+  /** Local day ISO when 30-day streak XP was awarded. */
+  lastStreak30XpKey: string | null
+  /** Local day ISO of last “keep your streak” nudge. */
+  lastStreakNudgeKey: string | null
   /** Last PrintX "Owed to me" amount synced (cents). */
   printxOpenOwedCents: number
   /**
@@ -444,7 +484,13 @@ export const DEFAULT_SETTINGS: Settings = {
   celebratedMilestoneIds: [],
   achievementHistory: [],
   xpTotal: 0,
+  xpHistory: [],
   lastStreakXpWeekKey: null,
+  lastHabitWeekXpKey: null,
+  lastWeeklyReviewXpKey: null,
+  lastStreak7XpKey: null,
+  lastStreak30XpKey: null,
+  lastStreakNudgeKey: null,
   businesses: DEFAULT_BUSINESSES.map((b) => ({ ...b })),
   printxOpenOwedCents: 0,
   printxOpenResolvedCents: 0,
@@ -464,6 +510,8 @@ export const DEFAULT_SETTINGS: Settings = {
     notifyAppleMismatch: true,
     notifyWeeklyReview: true,
     notifyMilestone: true,
+    notifyLevelUp: true,
+    notifyStreak: true,
     celebrationSound: false,
     weeklyReviewWeekday: 1,
   },
@@ -658,7 +706,13 @@ export function createEmptyState(): AppState {
       celebratedMilestoneIds: [],
       achievementHistory: [],
       xpTotal: 0,
+      xpHistory: [],
       lastStreakXpWeekKey: null,
+      lastHabitWeekXpKey: null,
+      lastWeeklyReviewXpKey: null,
+      lastStreak7XpKey: null,
+      lastStreak30XpKey: null,
+      lastStreakNudgeKey: null,
       printxIgnoredEventIds: [],
       allowanceAuto: { ...DEFAULT_SETTINGS.allowanceAuto },
       subscriptions: [],

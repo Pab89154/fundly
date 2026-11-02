@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Gift, Sparkles, X } from 'lucide-react'
+import { Gift, Sparkles, Trophy, X } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import { formatUsd } from '../lib/money'
 import { goalName } from '../types'
@@ -48,11 +48,27 @@ export function CelebrationModal() {
   const { celebration, dismissCelebration, state } = useMoney()
   if (celebration == null) return null
 
-  const name = goalName(state.settings)
   const soundOn = Boolean(state.settings.reminders?.celebrationSound)
+  const name = goalName(state.settings)
+
+  if (celebration.type === 'levelUp') {
+    return (
+      <LevelUpBody
+        level={celebration.level}
+        levelName={celebration.name}
+        xpTotal={celebration.xpTotal}
+        soundOn={soundOn}
+        notifyEnabled={
+          Boolean(state.settings.reminders?.webPushEnabled) &&
+          state.settings.reminders?.notifyLevelUp !== false
+        }
+        onDismiss={dismissCelebration}
+      />
+    )
+  }
 
   return (
-    <CelebrationBody
+    <MilestoneBody
       celebrationCents={celebration.cents}
       celebrationId={celebration.id}
       title={celebration.title}
@@ -70,7 +86,93 @@ export function CelebrationModal() {
   )
 }
 
-function CelebrationBody({
+function LevelUpBody({
+  level,
+  levelName,
+  xpTotal,
+  soundOn,
+  notifyEnabled,
+  onDismiss,
+}: {
+  level: number
+  levelName: string
+  xpTotal: number
+  soundOn: boolean
+  notifyEnabled: boolean
+  onDismiss: () => void
+}) {
+  useEffect(() => {
+    if (soundOn) playCelebrationChime(true)
+  }, [level, soundOn])
+
+  useEffect(() => {
+    if (!notifyEnabled) return
+    maybeNotify(
+      `Level ${level} — ${levelName}!`,
+      `You’re at ${xpTotal.toLocaleString()} XP. Keep logging income in Fundly.`,
+      { tag: `level-${level}`, url: '/savings' },
+    )
+  }, [level, levelName, notifyEnabled, xpTotal])
+
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
+  return (
+    <div
+      className="celebration-finale celebration-levelup fixed inset-0 z-[60] flex flex-col items-center justify-center overflow-hidden p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="levelup-title"
+    >
+      <ConfettiBurst fireKey={`level-${level}`} intense finale />
+      <button
+        type="button"
+        className="absolute right-4 top-4 z-20 rounded-xl bg-black/35 p-2.5 text-white/80 backdrop-blur hover:bg-black/50"
+        onClick={onDismiss}
+        aria-label="Close"
+      >
+        <X size={20} />
+      </button>
+      <div className="celebration-finale-content relative z-[1] flex max-w-lg flex-col items-center text-center">
+        <p className="celebration-finale-eyebrow flex items-center gap-2 text-sm font-bold uppercase tracking-[0.22em] text-[var(--green)]">
+          <Trophy size={16} aria-hidden />
+          Level up
+          <Sparkles size={16} aria-hidden />
+        </p>
+        <div className="celebration-finale-pig mt-6">
+          <PiggyMascot
+            expression="crowned"
+            accessories={['bandana', 'glasses', 'coin', 'cape', 'crown']}
+            celebrating
+            finale
+            size={140}
+          />
+        </div>
+        <h2 id="levelup-title" className="celebration-finale-title mt-8 text-4xl font-extrabold text-white sm:text-5xl">
+          Level {level}
+        </h2>
+        <p className="celebration-finale-amount mt-3 text-2xl font-extrabold text-[var(--green)] sm:text-3xl">
+          {levelName}
+        </p>
+        <p className="mt-4 text-base text-white/75 sm:text-lg">{xpTotal.toLocaleString()} XP total</p>
+        <button
+          type="button"
+          className="btn btn-primary celebration-finale-cta mt-8 min-w-[220px] px-8 py-3 text-base"
+          onClick={onDismiss}
+        >
+          Keep going
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MilestoneBody({
   celebrationCents,
   celebrationId,
   title,
@@ -135,14 +237,12 @@ function CelebrationBody({
         >
           <X size={20} />
         </button>
-
         <div className="celebration-finale-content relative z-[1] flex max-w-lg flex-col items-center text-center">
           <p className="celebration-finale-eyebrow flex items-center gap-2 text-sm font-bold uppercase tracking-[0.22em] text-[var(--green)]">
             <Sparkles size={16} aria-hidden />
             Goal complete
             <Sparkles size={16} aria-hidden />
           </p>
-
           <div className="celebration-finale-pig mt-6">
             <PiggyMascot
               expression="crowned"
@@ -152,7 +252,6 @@ function CelebrationBody({
               size={148}
             />
           </div>
-
           <h2
             id="celebration-finale-title"
             className="celebration-finale-title mt-8 text-4xl font-extrabold tracking-tight text-white sm:text-5xl"

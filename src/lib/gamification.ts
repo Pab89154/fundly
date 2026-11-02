@@ -1,26 +1,150 @@
-/** Streak, PrintX personal best, and XP helpers for Savings habit stats. */
+/** XP ledger, levels, streaks, and habit awards. */
 
-import type { Transaction } from '../types'
-import { localDateISO, parseLocalDate } from './money'
+import type { Settings, Transaction, XpHistoryEntry, XpKind } from '../types'
 import { mondayOfISOWeek, weekStats } from './recurring'
-import { addDaysISO, zonedDateISO } from './timezone'
+import { addDaysISO, zonedDateISO, zonedIsoWeekKey } from './timezone'
 
 export const XP = {
-  incomeLogged: 5,
-  milestoneUnlock: 50,
-  milestoneFinalBonus: 100,
-  streakWeek: 10,
+  genuineIncome: 15,
+  purchase: 5,
+  milestoneUnlock: 100,
+  weeklyReview: 30,
+  weeklySavingsHabit: 50,
+  printxPayment: 10,
+  streak7: 75,
+  streak30: 200,
 } as const
 
-export function xpForMilestoneUnlock(isFinal: boolean): number {
-  return XP.milestoneUnlock + (isFinal ? XP.milestoneFinalBonus : 0)
+export type LevelDef = {
+  level: number
+  name: string
+  minXp: number
+}
+
+export const LEVELS: LevelDef[] = [
+  { level: 1, name: 'Starter', minXp: 0 },
+  { level: 2, name: 'Saver', minXp: 250 },
+  { level: 3, name: 'Builder', minXp: 600 },
+  { level: 4, name: 'Money Master', minXp: 1_200 },
+  { level: 5, name: 'Elite Saver', minXp: 2_000 },
+  { level: 6, name: 'Fundly Legend', minXp: 3_500 },
+]
+
+export function awardXp(current: number, delta: number): number {
+  return Math.max(0, Math.trunc(current || 0) + Math.max(0, Math.trunc(delta)))
+}
+
+export function levelFromXp(xp: number): LevelDef {
+  const total = Math.max(0, Math.trunc(xp || 0))
+  let current = LEVELS[0]!
+  for (const L of LEVELS) {
+    if (total >= L.minXp) current = L
+  }
+  return current
+}
+
+export function nextLevelProgress(xp: number): {
+  current: LevelDef
+  next: LevelDef | null
+  xpIntoLevel: number
+  xpForNext: number
+  ratio: number
+  xpToNext: number
+} {
+  const total = Math.max(0, Math.trunc(xp || 0))
+  const current = levelFromXp(total)
+  const idx = LEVELS.findIndex((L) => L.level === current.level)
+  const next = idx >= 0 && idx < LEVELS.length - 1 ? LEVELS[idx + 1]! : null
+  if (!next) {
+    return {
+      current,
+      next: null,
+      xpIntoLevel: Math.max(0, total - current.minXp),
+      xpForNext: 0,
+      ratio: 1,
+      xpToNext: 0,
+    }
+  }
+  const span = Math.max(1, next.minXp - current.minXp)
+  const into = Math.max(0, total - current.minXp)
+  return {
+    current,
+    next,
+    xpIntoLevel: into,
+    xpForNext: span,
+    ratio: Math.min(1, into / span),
+    xpToNext: Math.max(0, next.minXp - total),
+  }
+}
+
+export function normalizeXpHistory(raw: unknown): XpHistoryEntry[] {
+  if (!Array.isArray(raw)) return []
+  const out: XpHistoryEntry[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const id = String(o.id || '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const amount = Math.max(0, Math.trunc(Number(o.amount) || 0))
+    if (!(amount > 0)) continue
+    const kind = String(o.kind || 'other') as XpKind
+    out.push({
+      id,
+      kind,
+      amount,
+      at: String(o.at || new Date().toISOString()),
+      label: String(o.label || kind).trim() || kind,
+      ...(o.refId ? { refId: String(o.refId) } : {}),
+    })
+  }
+  return out
+}
+
+export function hasXpAward(settings: Settings, id: string): boolean {
+  return (settings.xpHistory || []).some((e) => e.id === id)
+}
+
+/** Append XP once by stable id. Never deducts. */
+export function tryAwardXp(
+  settings: Settings,
+  entry: {
+    id: string
+    kind: XpKind
+    amount: number
+    label: string
+    refId?: string
+    at?: string
+  },
+): { settings: Settings; awarded: boolean; amount: number } {
+  const id = String(entry.id || '').trim()
+  const amount = Math.max(0, Math.trunc(entry.amount || 0))
+  if (!id || !(amount > 0)) return { settings, awarded: false, amount: 0 }
+  if (hasXpAward(settings, id)) return { settings, awarded: false, amount: 0 }
+
+  const row: XpHistoryEntry = {
+    id,
+    kind: entry.kind,
+    amount,
+    at: entry.at || new Date().toISOString(),
+    label: entry.label.trim() || entry.kind,
+    ...(entry.refId ? { refId: entry.refId } : {}),
+  }
+  const xpHistory = [...(settings.xpHistory || []), row]
+  const xpTotal = awardXp(settings.xpTotal || 0, amount)
+  return {
+    settings: { ...settings, xpHistory, xpTotal },
+    awarded: true,
+    amount,
+  }
 }
 
 function shiftMondayISO(mondayISO: string, weeksBack: number): string {
   return addDaysISO(mondayISO, -7 * weeksBack)
 }
 
-/** Consecutive Mon–Sun weeks with goalGainedCents > 0, counting back from current week. */
+/** Consecutive Mon–Sun weeks with goalGainedCents > 0 (display + habit). */
 export function savingsStreakWeeks(
   transactions: Transaction[],
   timeZone = 'America/Chicago',
@@ -38,7 +162,6 @@ export function savingsStreakWeeks(
       monday = shiftMondayISO(monday, 1)
       continue
     }
-    // Current week can be empty mid-week without breaking prior streak
     if (i === 0) {
       monday = shiftMondayISO(monday, 1)
       continue
@@ -46,6 +169,157 @@ export function savingsStreakWeeks(
     break
   }
   return streak
+}
+
+/** True if tx counts toward activity streak / genuine XP. */
+export function isGenuineActivityTx(tx: Transaction): boolean {
+  if (tx.settledAt === null) return false
+  if (tx.type === 'opening' || tx.type === 'reconcile' || tx.type === 'transfer') return false
+  const tags = tx.tags || []
+  if (tags.includes('opening') || tags.includes('statement') || tags.includes('past')) return false
+  if (tags.includes('rebalance')) return false
+  if (tx.type === 'income' || tx.type === 'import') {
+    if (tx.source === 'opening') return false
+    return true
+  }
+  if (tx.type === 'spending' || tx.type === 'apple_cash_purchase') return true
+  return false
+}
+
+function activityDates(
+  transactions: Transaction[],
+  timeZone: string,
+): Set<string> {
+  const days = new Set<string>()
+  for (const tx of transactions) {
+    if (!isGenuineActivityTx(tx)) continue
+    if (!tx.date || !/^\d{4}-\d{2}-\d{2}$/.test(tx.date)) continue
+    // tx.date is already local calendar date in Fundly
+    void timeZone
+    days.add(tx.date)
+  }
+  return days
+}
+
+/** Consecutive calendar days (back from today) with genuine income or purchase. */
+export function activityStreakDays(
+  transactions: Transaction[],
+  timeZone = 'America/Chicago',
+  now = new Date(),
+): number {
+  const today = zonedDateISO(timeZone, now)
+  const days = activityDates(transactions, timeZone)
+  let streak = 0
+  let cursor = today
+  for (let i = 0; i < 800; i++) {
+    if (days.has(cursor)) {
+      streak += 1
+      cursor = addDaysISO(cursor, -1)
+      continue
+    }
+    // Allow today empty mid-day without breaking
+    if (i === 0) {
+      cursor = addDaysISO(cursor, -1)
+      continue
+    }
+    break
+  }
+  return streak
+}
+
+/** Weekly Goal-pot habit XP once per Monday week. */
+export function habitWeekXpIfDue(
+  settings: Settings,
+  transactions: Transaction[],
+  timeZone = 'America/Chicago',
+  now = new Date(),
+): { id: string; weekKey: string } | null {
+  const today = zonedDateISO(timeZone, now)
+  const weekKey = mondayOfISOWeek(today)
+  const id = `habit_week:${weekKey}`
+  if (hasXpAward(settings, id)) return null
+  if (settings.lastHabitWeekXpKey === weekKey || settings.lastStreakXpWeekKey === weekKey) {
+    return null
+  }
+  const end = addDaysISO(weekKey, 6)
+  const { goalGainedCents } = weekStats(transactions, weekKey, end)
+  if (goalGainedCents <= 0) return null
+  return { id, weekKey }
+}
+
+export function streakThresholdXpIfDue(
+  settings: Settings,
+  streakDays: number,
+  timeZone = 'America/Chicago',
+  now = new Date(),
+): Array<{ id: string; kind: XpKind; amount: number; label: string; keyField: 'lastStreak7XpKey' | 'lastStreak30XpKey'; day: string }> {
+  const today = zonedDateISO(timeZone, now)
+  const out: Array<{
+    id: string
+    kind: XpKind
+    amount: number
+    label: string
+    keyField: 'lastStreak7XpKey' | 'lastStreak30XpKey'
+    day: string
+  }> = []
+  if (streakDays >= 7) {
+    const id = `streak7:${today}`
+    if (!hasXpAward(settings, id) && !settings.lastStreak7XpKey) {
+      out.push({
+        id,
+        kind: 'streak7',
+        amount: XP.streak7,
+        label: '7-day activity streak',
+        keyField: 'lastStreak7XpKey',
+        day: today,
+      })
+    }
+  }
+  if (streakDays >= 30) {
+    const id = `streak30:${today}`
+    if (!hasXpAward(settings, id) && !settings.lastStreak30XpKey) {
+      out.push({
+        id,
+        kind: 'streak30',
+        amount: XP.streak30,
+        label: '30-day activity streak',
+        keyField: 'lastStreak30XpKey',
+        day: today,
+      })
+    }
+  }
+  return out
+}
+
+export function weeklyReviewXpIfDue(
+  settings: Settings,
+  timeZone = 'America/Chicago',
+  now = new Date(),
+): { id: string; weekKey: string } | null {
+  const weekKey = zonedIsoWeekKey(timeZone, now)
+  const id = `review:${weekKey}`
+  if (hasXpAward(settings, id)) return null
+  if (settings.lastWeeklyReviewXpKey === weekKey) return null
+  return { id, weekKey }
+}
+
+/**
+ * Daily nudge when the user has an activity streak but has not logged
+ * genuine income/spend yet today — keep the streak by marking money in Fundly.
+ */
+export function streakNudgeIfDue(
+  settings: Settings,
+  transactions: Transaction[],
+  timeZone = 'America/Chicago',
+  now = new Date(),
+): { today: string; streakDays: number } | null {
+  const today = zonedDateISO(timeZone, now)
+  if (settings.lastStreakNudgeKey === today) return null
+  const streakDays = activityStreakDays(transactions, timeZone, now)
+  if (streakDays < 1) return null
+  // Already active today → no nudge
+  if (activityDates(transactions, timeZone).has(today)) return null
+  return { today, streakDays }
 }
 
 /** PrintX settled earnings for a Monday week (same bucketing as PrintX chart). */
@@ -71,7 +345,6 @@ export function printxSettledCentsInWeek(
   return Math.max(0, sum)
 }
 
-/** Max weekly PrintX settled earnings across history (+ current week). */
 export function printxPersonalBestWeeklyCents(
   transactions: Transaction[],
   timeZone = 'America/Chicago',
@@ -91,36 +364,7 @@ export function printxPersonalBestWeeklyCents(
   return best
 }
 
-export function awardXp(current: number, delta: number): number {
-  return Math.max(0, Math.trunc(current || 0) + Math.max(0, Math.trunc(delta)))
+/** @deprecated use XP.milestoneUnlock */
+export function xpForMilestoneUnlock(_isFinal?: boolean): number {
+  return XP.milestoneUnlock
 }
-
-/** Award streak XP once per Mon–Sun week when that week has Goal pot gains. */
-export function streakXpIfDue(
-  lastWeekKey: string | null | undefined,
-  transactions: Transaction[],
-  timeZone = 'America/Chicago',
-  now = new Date(),
-): { xp: number; weekKey: string } | null {
-  const today = zonedDateISO(timeZone, now)
-  const weekKey = mondayOfISOWeek(today)
-  if (lastWeekKey === weekKey) return null
-  const end = addDaysISO(weekKey, 6)
-  const { goalGainedCents } = weekStats(transactions, weekKey, end)
-  if (goalGainedCents <= 0) return null
-  if (savingsStreakWeeks(transactions, timeZone, now) < 1) return null
-  return { xp: XP.streakWeek, weekKey }
-}
-
-/** Local Monday ISO for a Date (PrintX-chart style). */
-export function localMondayISO(d: Date): string {
-  const weekStart = new Date(d)
-  weekStart.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-  return localDateISO(weekStart)
-}
-
-export function mondayFromTxDate(dateISO: string): string {
-  return mondayOfISOWeek(dateISO)
-}
-
-export { parseLocalDate }

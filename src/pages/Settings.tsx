@@ -941,7 +941,9 @@ export function Settings() {
         {(
           [
             ['notifyMilestone', 'When you reach a milestone'],
-            ['celebrationSound', 'Play a soft sound on milestone unlock'],
+            ['notifyLevelUp', 'When you level up'],
+            ['notifyStreak', 'Streak wins + “keep your streak” reminders'],
+            ['celebrationSound', 'Play a soft sound on unlock / level-up'],
             ['notifyAllowance', 'When allowance is added'],
             ['notifySubscriptionFail', 'When a subscription can’t be paid'],
             ['notifyAppleMismatch', 'When Apple Cash doesn’t match'],

@@ -27,8 +27,10 @@ import {
   nextGoalMilestone,
 } from '../lib/milestones'
 import {
+  activityStreakDays,
+  LEVELS,
+  nextLevelProgress,
   printxPersonalBestWeeklyCents,
-  savingsStreakWeeks,
 } from '../lib/gamification'
 import { printxUnsettledCents } from '../lib/balances'
 import { NativeSelect } from '../components/NativeSelect'
@@ -98,15 +100,12 @@ export function Savings() {
     milestoneList.length,
   )
   const celebrating = celebration != null
-  const streak = savingsStreakWeeks(
-    state.transactions,
-    state.settings.timezone || 'America/Chicago',
-  )
-  const printxPb = printxPersonalBestWeeklyCents(
-    state.transactions,
-    state.settings.timezone || 'America/Chicago',
-  )
+  const tz = state.settings.timezone || 'America/Chicago'
+  const dayStreak = activityStreakDays(state.transactions, tz)
+  const printxPb = printxPersonalBestWeeklyCents(state.transactions, tz)
   const xpTotal = Math.max(0, Math.trunc(state.settings.xpTotal || 0))
+  const levelProg = nextLevelProgress(xpTotal)
+  const recentXp = [...(state.settings.xpHistory || [])].slice(-8).reverse()
   const historyById = new Map(
     (state.settings.achievementHistory || []).map((h) => [h.milestoneId, h]),
   )
@@ -475,14 +474,48 @@ export function Savings() {
         </section>
       ) : null}
 
-      <section className="card p-5">
-        <h3 className="text-lg font-bold">Habit stats</h3>
-        <div className="mt-4 grid grid-cols-3 gap-3">
+      <section className="card space-y-5 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-lg font-bold">
+              <Zap size={18} className="text-[var(--green)]" aria-hidden />
+              XP &amp; Level
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Earn XP from real income, purchases, milestones, and habits — never deducted.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              Level {levelProg.current.level}
+            </p>
+            <p className="text-xl font-extrabold text-[var(--green)]">{levelProg.current.name}</p>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex flex-wrap items-end justify-between gap-2 text-sm">
+            <p className="font-semibold">{xpTotal.toLocaleString()} XP</p>
+            <p className="text-[var(--muted)]">
+              {levelProg.next
+                ? `${levelProg.xpToNext.toLocaleString()} to ${levelProg.next.name}`
+                : 'Max level'}
+            </p>
+          </div>
+          <div className="progress-track mt-2">
+            <div
+              className="progress-fill milestone-progress-anim"
+              style={{ width: `${Math.round(levelProg.ratio * 1000) / 10}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">
             <Flame size={16} className="mx-auto text-[var(--orange)]" aria-hidden />
-            <p className="mt-2 text-xl font-extrabold">{streak}</p>
+            <p className="mt-2 text-xl font-extrabold">{dayStreak}</p>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Week streak
+              Day streak
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">
@@ -493,12 +526,61 @@ export function Savings() {
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">
-            <Zap size={16} className="mx-auto text-[var(--green)]" aria-hidden />
-            <p className="mt-2 text-xl font-extrabold">{xpTotal}</p>
+            <Trophy size={16} className="mx-auto text-[var(--green)]" aria-hidden />
+            <p className="mt-2 text-xl font-extrabold">{levelProg.current.level}</p>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              XP
+              Level
             </p>
           </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Level badges
+          </p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {LEVELS.map((L) => {
+              const unlocked = xpTotal >= L.minXp
+              return (
+                <li
+                  key={L.level}
+                  className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+                    unlocked
+                      ? 'border-[var(--green)]/40 bg-[var(--green)]/10 text-[var(--green)]'
+                      : 'border-[var(--border)] bg-[var(--card-2)] text-[var(--muted)] opacity-60 grayscale'
+                  }`}
+                >
+                  {L.name}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Recent XP
+          </p>
+          {recentXp.length === 0 ? (
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Log genuine income or a purchase to start earning.
+            </p>
+          ) : (
+            <ul className="mt-2 divide-y divide-[var(--border)]">
+              {recentXp.map((e) => (
+                <li
+                  key={e.id}
+                  className="flex items-center justify-between gap-3 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{e.label}</p>
+                    <p className="text-xs text-[var(--muted)]">{e.at.slice(0, 10)}</p>
+                  </div>
+                  <p className="shrink-0 font-extrabold text-[var(--green)]">+{e.amount}</p>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
 

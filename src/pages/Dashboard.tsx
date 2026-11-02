@@ -30,7 +30,11 @@ import {
   nextGoalMilestone,
 } from '../lib/milestones'
 import { PiggyMascot, piggyStageFromProgress } from '../components/PiggyMascot'
-import { printxPersonalBestWeeklyCents, savingsStreakWeeks } from '../lib/gamification'
+import {
+  activityStreakDays,
+  nextLevelProgress,
+  printxPersonalBestWeeklyCents,
+} from '../lib/gamification'
 import {
   allowanceTotalCents,
   businessEarningsCents,
@@ -44,7 +48,7 @@ import { goalName, goalTargetCents } from '../types'
 import { normalizeAllocationCents } from '../lib/money'
 
 export function Dashboard() {
-  const { state, balances, logWeeklyAllowance } = useMoney()
+  const { state, balances, logWeeklyAllowance, markWeeklyReviewSeen } = useMoney()
   const location = useLocation()
   const [allowMsg, setAllowMsg] = useState('')
   const [weekFlash, setWeekFlash] = useState(false)
@@ -84,12 +88,16 @@ export function Dashboard() {
     unlockedCount,
     milestoneList.length,
   )
-  const streak = savingsStreakWeeks(state.transactions, state.settings.timezone || 'America/Chicago')
+  const dayStreak = activityStreakDays(
+    state.transactions,
+    state.settings.timezone || 'America/Chicago',
+  )
   const printxPb = printxPersonalBestWeeklyCents(
     state.transactions,
     state.settings.timezone || 'America/Chicago',
   )
   const xpTotal = Math.max(0, Math.trunc(state.settings.xpTotal || 0))
+  const levelProg = nextLevelProgress(xpTotal)
 
   const apple = state.settings.appleCashConfirmedCents
   const appleDiff = apple == null ? null : balances.combined - apple
@@ -134,13 +142,18 @@ export function Dashboard() {
   }, [state.transactions, goal, saved, today])
 
   useEffect(() => {
+    markWeeklyReviewSeen()
+  }, [markWeeklyReviewSeen])
+
+  useEffect(() => {
     if (location.hash === '#this-week' || new URLSearchParams(location.search).get('focus') === 'week') {
       setWeekFlash(true)
+      markWeeklyReviewSeen()
       document.getElementById('this-week')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       const t = window.setTimeout(() => setWeekFlash(false), 2500)
       return () => window.clearTimeout(t)
     }
-  }, [location.hash, location.search])
+  }, [location.hash, location.search, markWeeklyReviewSeen])
 
   const onLogAllowance = () => {
     setAllowMsg('')
@@ -285,8 +298,15 @@ export function Dashboard() {
                   </p>
                 )}
                 <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Streak {streak} · PrintX PB {formatUsd(printxPb)} · XP {xpTotal}
+                  {levelProg.current.name} · {xpTotal.toLocaleString()} XP · {dayStreak}d streak ·
+                  PrintX PB {formatUsd(printxPb)}
                 </p>
+                <div className="progress-track mt-2 max-w-[220px]">
+                  <div
+                    className="progress-fill milestone-progress-anim"
+                    style={{ width: `${Math.round(levelProg.ratio * 1000) / 10}%` }}
+                  />
+                </div>
               </div>
             </div>
             {nextTreat ? (

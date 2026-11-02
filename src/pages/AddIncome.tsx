@@ -20,7 +20,7 @@ export function AddIncome() {
     return [
       ...businesses,
       { value: 'allowance', label: 'Allowance' },
-      { value: 'other', label: 'Other' },
+      { value: 'other', label: 'Other — specify (optional)' },
     ]
   }, [state.settings.businesses])
 
@@ -123,9 +123,17 @@ export function AddIncome() {
               if (biz && !description.trim()) {
                 setDescription(`${biz.name} sale`)
               }
+              if (next === 'other') {
+                setDescription((d) => (d.endsWith(' sale') ? '' : d))
+              }
             }}
             options={incomeSources}
           />
+          {source === 'other' ? (
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Specify what this income was for below (optional).
+            </p>
+          ) : null}
         </div>
         {isPrintxSource ? (
           <div>
@@ -178,7 +186,13 @@ export function AddIncome() {
                     ? 'Weekly PrintX sales'
                     : 'What was this for?'
             }
+            aria-describedby={source === 'other' ? 'desc-other-hint' : undefined}
           />
+          {source === 'other' ? (
+            <p id="desc-other-hint" className="mt-1.5 text-xs text-[var(--muted)]">
+              Optional — leave blank if you don’t need a note.
+            </p>
+          ) : null}
         </div>
 
         {cents > 0 ? (
