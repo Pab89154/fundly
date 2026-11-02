@@ -36,11 +36,17 @@ function baseState(): AppState {
     now: new Date('2026-11-02T18:00:00Z'),
   })
   const allowances = events.filter((e) => e.kind === 'allowance')
-  assert(allowances.length >= 1, 'at least one allowance applied')
-  const last = allowances[allowances.length - 1]!
+  assert(allowances.length === 1, 'only the current due week (no 12-week backfill)')
+  const last = allowances[0]!
   assert(last.date === '2026-11-02', 'due on Monday')
   const again = applyDueRecurring(next, { todayISO: '2026-11-02' })
   assert(again.events.filter((e) => e.kind === 'allowance').length === 0, 'no double allowance')
+  const midweek = applyDueRecurring(baseState(), {
+    todayISO: '2026-11-04', // Wed — most recent Monday is Nov 2
+    now: new Date('2026-11-04T18:00:00Z'),
+  })
+  const midAllow = midweek.events.filter((e) => e.kind === 'allowance')
+  assert(midAllow.length === 1 && midAllow[0]!.date === '2026-11-02', 'mid-week posts only last due day')
   const split = allocateCents(toCents(10), state.settings.allocation)
   const tx = next.transactions.find((t) => t.externalId === last.externalId)
   assert(tx?.allocation?.iphone === split.iphone, '60% goal')

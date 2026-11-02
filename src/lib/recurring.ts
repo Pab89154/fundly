@@ -102,35 +102,38 @@ export function applyDueRecurring(
   }
 
   // --- Auto allowance (weekly on configured weekday) ---
+  // Only the most recent due day ≤ today — never backfill prior weeks (that invented cash).
   if (settings.allowanceAuto.enabled && settings.weeklyAllowanceCents > 0) {
     const targetWd = settings.allowanceAuto.weekday
-    // Walk from last ~12 weeks of due Mondays/target weekdays through today
-    let cursor = addDaysISO(today, -84)
-    while (compareISODate(cursor, today) <= 0) {
-      const [y, m, d] = cursor.split('-').map(Number)
+    let due = today
+    for (let i = 0; i < 7; i++) {
+      const [y, m, d] = due.split('-').map(Number)
       const dt = new Date(y!, m! - 1, d!)
-      if (dt.getDay() === targetWd) {
-        const ext = allowanceExternalId(cursor)
-        if (!hasExternalId(transactions, ext)) {
-          const cents = settings.weeklyAllowanceCents
-          const allocation = allocateCents(cents, settings.allocation)
-          const tx: Transaction = {
-            id: newTxId('allow'),
-            type: 'income',
-            amountCents: cents,
-            date: cursor,
-            description: 'Weekly allowance (auto)',
-            source: 'allowance',
-            allocation,
-            externalId: ext,
-            tags: ['recurring', 'allowance'],
-            createdAt: new Date().toISOString(),
-          }
-          transactions.push(tx)
-          events.push({ kind: 'allowance', date: cursor, amountCents: cents, externalId: ext })
+      if (dt.getDay() === targetWd) break
+      due = addDaysISO(due, -1)
+    }
+    const [y, m, d] = due.split('-').map(Number)
+    const dueDt = new Date(y!, m! - 1, d!)
+    if (dueDt.getDay() === targetWd && compareISODate(due, today) <= 0) {
+      const ext = allowanceExternalId(due)
+      if (!hasExternalId(transactions, ext)) {
+        const cents = settings.weeklyAllowanceCents
+        const allocation = allocateCents(cents, settings.allocation)
+        const tx: Transaction = {
+          id: newTxId('allow'),
+          type: 'income',
+          amountCents: cents,
+          date: due,
+          description: 'Weekly allowance (auto)',
+          source: 'allowance',
+          allocation,
+          externalId: ext,
+          tags: ['recurring', 'allowance'],
+          createdAt: new Date().toISOString(),
         }
+        transactions.push(tx)
+        events.push({ kind: 'allowance', date: due, amountCents: cents, externalId: ext })
       }
-      cursor = addDaysISO(cursor, 1)
     }
   }
 

@@ -178,8 +178,8 @@ export function Recurring() {
             />
           </div>
           <p className="text-xs text-[var(--muted)]">
-            Posts {formatUsd(state.settings.weeklyAllowanceCents)} each week on that day (server +
-            when you open Fundly).
+            Posts {formatUsd(state.settings.weeklyAllowanceCents)} on that day only (no past-week
+            catch-up). Server + when you open Fundly.
           </p>
         </div>
       </section>

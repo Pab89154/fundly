@@ -390,8 +390,9 @@ export function Dashboard() {
           />
         ))}
         <StatCard
-          label="Allowance received"
+          label="Allowance to date"
           value={formatUsd(allowanceTotalCents(state.transactions))}
+          hint={`${formatUsd(state.settings.weeklyAllowanceCents)} / week`}
           accent="orange"
           icon={<Wallet size={16} aria-hidden />}
         />

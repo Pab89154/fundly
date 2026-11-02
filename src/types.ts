@@ -347,6 +347,8 @@ export interface Settings {
   timezone: string
   timezoneSource: TimezoneSource
   allowanceAuto: AllowanceAuto
+  /** Set after stripping invented multi-week auto-allowance backfill. */
+  allowanceBackfillClearedV1?: boolean
   subscriptions: Subscription[]
   reminders: ReminderSettings
   /** Browser PushSubscription JSON for Worker web push. */

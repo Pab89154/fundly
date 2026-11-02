@@ -62,26 +62,55 @@ function isUndoablePrintxPayout(tx: Transaction): boolean {
   return isLegacyPrintxResolveTx(tx) || isPrintxSettleEventId(tx.externalId)
 }
 
+/** Drop invented multi-week auto-allowance posts (old catch-up backfilled ~12 weeks). */
+function isPhantomAutoAllowance(tx: Transaction): boolean {
+  if (tx.source !== 'allowance') return false
+  if ((tx.description || '').includes('(auto)')) return true
+  return Boolean(
+    tx.tags?.includes('recurring') &&
+      tx.tags?.includes('allowance') &&
+      String(tx.externalId || '').startsWith('recurring:allowance:') &&
+      (tx.description || '') === 'Weekly allowance (auto)',
+  )
+}
+
+function stripPhantomAutoAllowances(state: AppState): AppState {
+  if (state.settings.allowanceBackfillClearedV1) return state
+  const txs = state.transactions.filter((tx) => !isPhantomAutoAllowance(tx))
+  if (txs.length === state.transactions.length) {
+    return {
+      ...state,
+      settings: { ...state.settings, allowanceBackfillClearedV1: true },
+    }
+  }
+  return {
+    ...state,
+    transactions: txs,
+    settings: { ...state.settings, allowanceBackfillClearedV1: true },
+  }
+}
+
 /** One-time: remove manual Fundly "Mark resolved" txs — pots come from PrintX settle:* only. */
 function stripLegacyPrintxResolves(state: AppState): AppState {
-  if (state.settings.printxAutoSettleV2) return state
-  const hadLegacy = state.transactions.some(isLegacyPrintxResolveTx)
-  const txs = state.transactions.filter((tx) => !isLegacyPrintxResolveTx(tx))
+  const afterAllow = stripPhantomAutoAllowances(state)
+  if (afterAllow.settings.printxAutoSettleV2) return afterAllow
+  const hadLegacy = afterAllow.transactions.some(isLegacyPrintxResolveTx)
+  const txs = afterAllow.transactions.filter((tx) => !isLegacyPrintxResolveTx(tx))
   const lastSettle = [...txs]
     .filter((tx) => isPrintxSettleEventId(tx.externalId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   return {
-    ...state,
+    ...afterAllow,
     transactions: txs,
     settings: {
-      ...state.settings,
+      ...afterAllow.settings,
       printxAutoSettleV2: true,
       printxOpenResolvedCents: 0,
       printxResolveUndo: null,
-      printxLastResolvedCents: lastSettle?.amountCents ?? (hadLegacy ? 0 : state.settings.printxLastResolvedCents),
-      printxLastResolvedAt: lastSettle?.settledAt ?? lastSettle?.createdAt ?? (hadLegacy ? null : state.settings.printxLastResolvedAt),
-      printxIgnoredEventIds: Array.isArray(state.settings.printxIgnoredEventIds)
-        ? state.settings.printxIgnoredEventIds
+      printxLastResolvedCents: lastSettle?.amountCents ?? (hadLegacy ? 0 : afterAllow.settings.printxLastResolvedCents),
+      printxLastResolvedAt: lastSettle?.settledAt ?? lastSettle?.createdAt ?? (hadLegacy ? null : afterAllow.settings.printxLastResolvedAt),
+      printxIgnoredEventIds: Array.isArray(afterAllow.settings.printxIgnoredEventIds)
+        ? afterAllow.settings.printxIgnoredEventIds
         : [],
     },
   }
