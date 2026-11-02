@@ -308,6 +308,49 @@ a {
   color: var(--text);
 }
 
+/* Prefix +/− sits outside the typed value — .field padding shorthand must not win. */
+.field-signed {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0 0.85rem 0 0.75rem;
+  color: var(--text);
+}
+
+.field-signed:focus-within {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.field-signed__sign {
+  flex: 0 0 auto;
+  font-size: 1.125rem;
+  font-weight: 800;
+  line-height: 1;
+  user-select: none;
+}
+
+.field-signed__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0.7rem 0;
+  color: inherit;
+  outline: none;
+  box-shadow: none;
+}
+
+.field-signed__input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
 /* iOS/WebKit date inputs nest an inner control that clips inside .field */
 input[type='date'].field {
   display: flex;

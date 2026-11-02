@@ -208,15 +208,12 @@ export function AppleCash() {
         </h3>
         <div>
           <label className="label">Amount</label>
-          <div className="relative">
-            <span
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-extrabold text-[var(--danger)]"
-              aria-hidden
-            >
+          <div className="field-signed">
+            <span className="field-signed__sign text-[var(--danger)]" aria-hidden>
               −
             </span>
             <input
-              className="field pl-8"
+              className="field-signed__input"
               type="number"
               min="0.01"
               step="0.01"
