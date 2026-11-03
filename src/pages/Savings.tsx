@@ -27,7 +27,7 @@ import {
   nextGoalMilestone,
 } from '../lib/milestones'
 import {
-  activityStreakDays,
+  activityStreakWeeks,
   LEVELS,
   nextLevelProgress,
   printxPersonalBestWeeklyCents,
@@ -101,7 +101,7 @@ export function Savings() {
   )
   const celebrating = celebration != null
   const tz = state.settings.timezone || 'America/Chicago'
-  const dayStreak = activityStreakDays(state.transactions, tz)
+  const weekStreak = activityStreakWeeks(state.transactions, tz)
   const printxPb = printxPersonalBestWeeklyCents(state.transactions, tz)
   const xpTotal = Math.max(0, Math.trunc(state.settings.xpTotal || 0))
   const levelProg = nextLevelProgress(xpTotal)
@@ -513,9 +513,9 @@ export function Savings() {
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">
             <Flame size={16} className="mx-auto text-[var(--orange)]" aria-hidden />
-            <p className="mt-2 text-xl font-extrabold">{dayStreak}</p>
+            <p className="mt-2 text-xl font-extrabold">{weekStreak}</p>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Day streak
+              Week streak
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-3 text-center">

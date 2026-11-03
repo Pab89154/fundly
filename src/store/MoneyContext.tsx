@@ -26,7 +26,7 @@ import {
 } from '../lib/money'
 import { computeBalances } from '../lib/balances'
 import {
-  activityStreakDays,
+  activityStreakWeeks,
   habitWeekXpIfDue,
   isGenuineActivityTx,
   levelFromXp,
@@ -390,8 +390,8 @@ function applyGamification(
     }
   }
 
-  const days = activityStreakDays(transactions, tz)
-  for (const s of streakThresholdXpIfDue(next, days, tz)) {
+  const weeks = activityStreakWeeks(transactions, tz)
+  for (const s of streakThresholdXpIfDue(next, weeks, tz)) {
     const r = tryAwardXp(next, {
       id: s.id,
       kind: s.kind,
@@ -403,8 +403,8 @@ function applyGamification(
     if (r.awarded && pushOn && streakNotify) {
       queueMicrotask(() =>
         maybeNotify(
-          s.kind === 'streak30' ? '30-day streak!' : '7-day streak!',
-          `+${s.amount} XP — keep earning and mark it in Fundly.`,
+          s.kind === 'streak30' ? '12-week streak!' : '4-week streak!',
+          `+${s.amount} XP — keep earning and mark it in Fundly each week.`,
           { tag: s.id, url: '/savings' },
         ),
       )
@@ -572,13 +572,13 @@ export function MoneyProvider({
         }
       }
 
-      // Keep-your-streak nudge: earn money and mark it in Fundly today
+      // Keep-your-streak nudge: earn money and mark it in Fundly this week
       if (pushOn && settings.reminders.notifyStreak !== false) {
         const nudge = streakNudgeIfDue(settings, next.transactions, settings.timezone)
         if (nudge) {
           maybeNotify(
-            `Keep your ${nudge.streakDays}-day streak!`,
-            'Earn more money and mark it in Fundly today so your streak doesn’t break.',
+            `Keep your ${nudge.streakWeeks}-week streak!`,
+            'Earn more money and mark it in Fundly this week so your streak doesn’t break.',
             { tag: `streak-nudge-${nudge.today}`, url: '/income' },
           )
           settings = { ...settings, lastStreakNudgeKey: nudge.today }

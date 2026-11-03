@@ -409,7 +409,7 @@ export interface Settings {
   lastStreak7XpKey: string | null
   /** Local day ISO when 30-day streak XP was awarded. */
   lastStreak30XpKey: string | null
-  /** Local day ISO of last “keep your streak” nudge. */
+  /** Monday ISO (or legacy day ISO) of last “keep your streak” nudge. */
   lastStreakNudgeKey: string | null
   /** Last PrintX "Owed to me" amount synced (cents). */
   printxOpenOwedCents: number

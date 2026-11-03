@@ -227,6 +227,39 @@ export function activityStreakDays(
   return streak
 }
 
+function weekHasActivity(days: Set<string>, mondayISO: string): boolean {
+  for (let d = 0; d < 7; d++) {
+    if (days.has(addDaysISO(mondayISO, d))) return true
+  }
+  return false
+}
+
+/** Consecutive Mon–Sun weeks (back from this week) with genuine income or purchase. */
+export function activityStreakWeeks(
+  transactions: Transaction[],
+  timeZone = 'America/Chicago',
+  now = new Date(),
+): number {
+  const today = zonedDateISO(timeZone, now)
+  const days = activityDates(transactions, timeZone)
+  let monday = mondayOfISOWeek(today)
+  let streak = 0
+  for (let i = 0; i < 520; i++) {
+    if (weekHasActivity(days, monday)) {
+      streak += 1
+      monday = shiftMondayISO(monday, 1)
+      continue
+    }
+    // Allow current week empty mid-week without breaking
+    if (i === 0) {
+      monday = shiftMondayISO(monday, 1)
+      continue
+    }
+    break
+  }
+  return streak
+}
+
 /** Weekly Goal-pot habit XP once per Monday week. */
 export function habitWeekXpIfDue(
   settings: Settings,
@@ -249,11 +282,19 @@ export function habitWeekXpIfDue(
 
 export function streakThresholdXpIfDue(
   settings: Settings,
-  streakDays: number,
+  streakWeeks: number,
   timeZone = 'America/Chicago',
   now = new Date(),
-): Array<{ id: string; kind: XpKind; amount: number; label: string; keyField: 'lastStreak7XpKey' | 'lastStreak30XpKey'; day: string }> {
+): Array<{
+  id: string
+  kind: XpKind
+  amount: number
+  label: string
+  keyField: 'lastStreak7XpKey' | 'lastStreak30XpKey'
+  day: string
+}> {
   const today = zonedDateISO(timeZone, now)
+  const weekKey = mondayOfISOWeek(today)
   const out: Array<{
     id: string
     kind: XpKind
@@ -262,29 +303,30 @@ export function streakThresholdXpIfDue(
     keyField: 'lastStreak7XpKey' | 'lastStreak30XpKey'
     day: string
   }> = []
-  if (streakDays >= 7) {
-    const id = `streak7:${today}`
+  // streak7 / streak30 kinds kept for XP ledger compatibility (4-week / 12-week)
+  if (streakWeeks >= 4) {
+    const id = `streak7:${weekKey}`
     if (!hasXpAward(settings, id) && !settings.lastStreak7XpKey) {
       out.push({
         id,
         kind: 'streak7',
         amount: XP.streak7,
-        label: '7-day activity streak',
+        label: '4-week activity streak',
         keyField: 'lastStreak7XpKey',
-        day: today,
+        day: weekKey,
       })
     }
   }
-  if (streakDays >= 30) {
-    const id = `streak30:${today}`
+  if (streakWeeks >= 12) {
+    const id = `streak30:${weekKey}`
     if (!hasXpAward(settings, id) && !settings.lastStreak30XpKey) {
       out.push({
         id,
         kind: 'streak30',
         amount: XP.streak30,
-        label: '30-day activity streak',
+        label: '12-week activity streak',
         keyField: 'lastStreak30XpKey',
-        day: today,
+        day: weekKey,
       })
     }
   }
@@ -304,22 +346,25 @@ export function weeklyReviewXpIfDue(
 }
 
 /**
- * Daily nudge when the user has an activity streak but has not logged
- * genuine income/spend yet today — keep the streak by marking money in Fundly.
+ * Weekly nudge when the user has an activity streak but has not logged
+ * genuine income/spend yet this Mon–Sun week — keep the streak in Fundly.
  */
 export function streakNudgeIfDue(
   settings: Settings,
   transactions: Transaction[],
   timeZone = 'America/Chicago',
   now = new Date(),
-): { today: string; streakDays: number } | null {
+): { today: string; streakWeeks: number } | null {
   const today = zonedDateISO(timeZone, now)
-  if (settings.lastStreakNudgeKey === today) return null
-  const streakDays = activityStreakDays(transactions, timeZone, now)
-  if (streakDays < 1) return null
-  // Already active today → no nudge
-  if (activityDates(transactions, timeZone).has(today)) return null
-  return { today, streakDays }
+  const weekKey = mondayOfISOWeek(today)
+  if (settings.lastStreakNudgeKey === weekKey || settings.lastStreakNudgeKey === today) {
+    return null
+  }
+  const streakWeeks = activityStreakWeeks(transactions, timeZone, now)
+  if (streakWeeks < 1) return null
+  // Already active this week → no nudge
+  if (weekHasActivity(activityDates(transactions, timeZone), weekKey)) return null
+  return { today: weekKey, streakWeeks }
 }
 
 /** PrintX settled earnings for a Monday week (same bucketing as PrintX chart). */

@@ -1045,7 +1045,7 @@ export function Settings() {
           .
         </p>
         <div>
-          <label className="label">Expected weekly PrintX (USD)</label>
+          <label className="label">Total weekly (USD)</label>
           <input
             className="field"
             type="number"

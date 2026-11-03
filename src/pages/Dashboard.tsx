@@ -31,7 +31,7 @@ import {
 } from '../lib/milestones'
 import { PiggyMascot, piggyStageFromProgress } from '../components/PiggyMascot'
 import {
-  activityStreakDays,
+  activityStreakWeeks,
   nextLevelProgress,
   printxPersonalBestWeeklyCents,
 } from '../lib/gamification'
@@ -88,7 +88,7 @@ export function Dashboard() {
     unlockedCount,
     milestoneList.length,
   )
-  const dayStreak = activityStreakDays(
+  const weekStreak = activityStreakWeeks(
     state.transactions,
     state.settings.timezone || 'America/Chicago',
   )
@@ -298,7 +298,7 @@ export function Dashboard() {
                   </p>
                 )}
                 <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  {levelProg.current.name} · {xpTotal.toLocaleString()} XP · {dayStreak}d streak ·
+                  {levelProg.current.name} · {xpTotal.toLocaleString()} XP · {weekStreak}w streak ·
                   PrintX PB {formatUsd(printxPb)}
                 </p>
                 <div className="progress-track mt-2 max-w-[220px]">
@@ -507,7 +507,7 @@ export function Dashboard() {
       ) : null}
 
       <p className="text-xs text-[var(--muted)]">
-        Expected weekly inflow about $
+        Total weekly about $
         {fromCents(
           state.settings.weeklyAllowanceCents + state.settings.expectedPrintxWeeklyCents,
         ).toFixed(2)}
