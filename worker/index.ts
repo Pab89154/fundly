@@ -56,7 +56,7 @@ function applyCors(headers: Headers, request: Request): void {
   if (!origin) return
   headers.set('Access-Control-Allow-Origin', origin)
   headers.set('Access-Control-Allow-Credentials', 'true')
-  headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
   headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   headers.set('Vary', 'Origin')
 }
