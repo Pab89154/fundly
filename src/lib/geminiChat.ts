@@ -3,7 +3,7 @@
  * Used by Worker + Vite middleware. Key stays server-side (GEMINI_API_KEY).
  */
 
-import type { AccountId, SpendSlice } from './money'
+import type { AccountId, SpendSlice } from './money.js'
 
 export type CoachChatMessage = { role: 'user' | 'assistant'; content: string }
 

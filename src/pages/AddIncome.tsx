@@ -165,9 +165,7 @@ export function AddIncome() {
                 ? 'Gift, refund, chore money…'
                 : selectedBusiness
                   ? `${selectedBusiness.name} sale`
-                  : isPrintxSource
-                    ? 'Weekly PrintX sales'
-                    : 'What was this for?'
+                  : 'What was this for?'
             }
             aria-describedby={source === 'other' ? 'desc-other-hint' : undefined}
           />
