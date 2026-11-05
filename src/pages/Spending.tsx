@@ -22,7 +22,7 @@ const POTS: { id: AccountId; label: string }[] = [
 ]
 
 export function Spending() {
-  const { addSpending, balances } = useMoney()
+  const { addSpending, balances, state } = useMoney()
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<SpendCategory>('other')
