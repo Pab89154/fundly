@@ -144,7 +144,6 @@ export function Transactions() {
                         {t.date} · {t.type}
                         {t.source ? ` · ${t.source}` : ''}
                         {t.category ? ` · ${t.category}` : ''}
-                        {t.printxSource ? ` · ${t.printxSource}` : ''}
                       </p>
                       {t.allocation ? (
                         <p className="mt-1 text-xs text-[var(--muted)]">

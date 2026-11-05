@@ -47,8 +47,7 @@ export function PrintXPage() {
   const week = printxEarningsCents(state.transactions, { since: startOfWeek() })
   const month = printxEarningsCents(state.transactions, { since: startOfMonth() })
   const life = printxEarningsCents(state.transactions)
-  const stripe = printxEarningsCents(state.transactions, { printxSource: 'stripe' })
-  const cash = printxEarningsCents(state.transactions, { printxSource: 'cash' })
+  const ifRedeemed = life + printxOpenRemainingCents
   const lastResolved = Number(state.settings.printxLastResolvedCents) || 0
 
   const weeklyChart = useMemo(() => {
@@ -232,9 +231,10 @@ export function PrintXPage() {
           <p className="mt-2 text-2xl font-extrabold">{formatUsd(month)}</p>
         </div>
         <div className="card p-5">
-          <p className="text-xs font-semibold uppercase text-[var(--muted)]">Stripe / cash</p>
-          <p className="mt-2 text-2xl font-extrabold">
-            {formatUsd(stripe)} · {formatUsd(cash)}
+          <p className="text-xs font-semibold uppercase text-[var(--muted)]">If you redeem</p>
+          <p className="mt-2 text-2xl font-extrabold">{formatUsd(ifRedeemed)}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            In pots + open on PrintX — total after Mark settled & Sync
           </p>
         </div>
       </div>

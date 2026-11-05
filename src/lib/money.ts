@@ -47,6 +47,62 @@ export function planSpendAcrossPots(
   return { ok: true, slices }
 }
 
+const POT_IDS: AccountId[] = ['iphone', 'spending', 'extra', 'charity']
+
+function isAccountId(v: unknown): v is AccountId {
+  return v === 'iphone' || v === 'spending' || v === 'extra' || v === 'charity'
+}
+
+/**
+ * Validate explicit per-pot amounts for a purchase.
+ * Accounts unique, cents > 0, sum equals total, each ≤ available.
+ */
+export function validateExactSlices(
+  balances: Record<AccountId, number>,
+  amountCents: number,
+  slices: SpendSlice[],
+): { ok: true; slices: SpendSlice[] } | { ok: false; error: string } {
+  const amount = Math.trunc(amountCents)
+  if (!(amount > 0)) return { ok: false, error: 'Enter an amount greater than $0.' }
+  if (!Array.isArray(slices) || slices.length === 0) {
+    return { ok: false, error: 'Pick at least one pot and an amount.' }
+  }
+  const seen = new Set<AccountId>()
+  const cleaned: SpendSlice[] = []
+  let sum = 0
+  for (const raw of slices) {
+    if (!raw || !isAccountId(raw.account)) {
+      return { ok: false, error: 'Each slice needs a valid pot.' }
+    }
+    if (seen.has(raw.account)) {
+      return { ok: false, error: `Duplicate pot: ${ACCOUNT_LABELS[raw.account]}.` }
+    }
+    const cents = Math.trunc(Number(raw.cents) || 0)
+    if (!(cents > 0)) {
+      return { ok: false, error: `Amount from ${ACCOUNT_LABELS[raw.account]} must be greater than $0.` }
+    }
+    const avail = Math.max(0, Math.trunc(balances[raw.account] || 0))
+    if (cents > avail) {
+      return {
+        ok: false,
+        error: `Not enough in ${ACCOUNT_LABELS[raw.account]}. Available: $${(avail / 100).toFixed(2)}.`,
+      }
+    }
+    seen.add(raw.account)
+    cleaned.push({ account: raw.account, cents })
+    sum += cents
+  }
+  if (sum !== amount) {
+    return {
+      ok: false,
+      error: `Pot amounts ($${(sum / 100).toFixed(2)}) must add up to $${(amount / 100).toFixed(2)}.`,
+    }
+  }
+  // Prefer primary pot order for display
+  cleaned.sort((a, b) => POT_IDS.indexOf(a.account) - POT_IDS.indexOf(b.account))
+  return { ok: true, slices: cleaned }
+}
+
 export type AllocationPct = {
   iphone: number
   spending: number

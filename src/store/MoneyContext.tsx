@@ -20,6 +20,7 @@ import {
   planSpendAcrossPots,
   sumAllocation,
   toCents,
+  validateExactSlices,
   type AccountId,
   type AllocationCents,
   type AllocationPct,
@@ -150,6 +151,8 @@ type AddSpendInput = {
   fromAccount?: AccountId
   /** Extra pots to pull from when the primary pot is short (combine). */
   combineFrom?: AccountId[]
+  /** Exact per-pot amounts (cents). When set, overrides fromAccount/combineFrom. */
+  slices?: SpendSlice[]
 }
 
 type TransferInput = {
@@ -662,41 +665,52 @@ export function MoneyProvider({
       if (!(cents > 0)) return { ok: false as const, error: 'Enter an amount greater than $0.' }
       const from = input.fromAccount ?? 'spending'
       const bal = computeBalances(state.transactions)
-      const helpers = (input.combineFrom || []).filter((a) => a !== from)
-      const plan = planSpendAcrossPots(bal, cents, from, helpers)
-      if (!plan.ok) {
-        const potLabel = ACCOUNT_LABELS[from]
-        if (helpers.length === 0) {
+
+      let planSlices: SpendSlice[]
+      if (input.slices && input.slices.length > 0) {
+        const exact = validateExactSlices(bal, cents, input.slices)
+        if (!exact.ok) {
+          return { ok: false as const, error: exact.error, fromAccount: from }
+        }
+        planSlices = exact.slices
+      } else {
+        const helpers = (input.combineFrom || []).filter((a) => a !== from)
+        const plan = planSpendAcrossPots(bal, cents, from, helpers)
+        if (!plan.ok) {
+          const potLabel = ACCOUNT_LABELS[from]
+          if (helpers.length === 0) {
+            return {
+              ok: false as const,
+              error: `Not enough in ${potLabel}. Available: $${fromCents(bal[from]).toFixed(2)}.`,
+              shortfallCents: plan.shortfallCents,
+              availableCents: bal[from],
+              fromAccount: from,
+            }
+          }
           return {
             ok: false as const,
-            error: `Not enough in ${potLabel}. Available: $${fromCents(bal[from]).toFixed(2)}.`,
+            error: `Still short $${fromCents(plan.shortfallCents).toFixed(2)} after combining pots.`,
             shortfallCents: plan.shortfallCents,
             availableCents: bal[from],
             fromAccount: from,
           }
         }
-        return {
-          ok: false as const,
-          error: `Still short $${fromCents(plan.shortfallCents).toFixed(2)} after combining pots.`,
-          shortfallCents: plan.shortfallCents,
-          availableCents: bal[from],
-          fromAccount: from,
-        }
+        planSlices = plan.slices
       }
 
-      const combineId = plan.slices.length > 1 ? newId() : undefined
+      const combineId = planSlices.length > 1 ? newId() : undefined
       const now = new Date().toISOString()
       const date = input.date || localDateISO()
       const description = input.description?.trim() || undefined
       const category = input.appleCash ? 'apple_cash' : input.category || 'other'
       const type = input.appleCash ? 'apple_cash_purchase' : 'spending'
-      const txs: Transaction[] = plan.slices.map((slice, i) => ({
+      const txs: Transaction[] = planSlices.map((slice, i) => ({
         id: newId(),
         type,
         amountCents: slice.cents,
         date,
         description:
-          plan.slices.length > 1
+          planSlices.length > 1
             ? `${description || 'Purchase'} (${ACCOUNT_LABELS[slice.account]} part)`
             : description,
         category,
@@ -707,7 +721,7 @@ export function MoneyProvider({
         createdAt: now,
       }))
       pushTxs(txs)
-      return { ok: true as const, slices: plan.slices }
+      return { ok: true as const, slices: planSlices }
     },
     [pushTxs, state.transactions],
   )

@@ -4,7 +4,7 @@ import { PlusCircle } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
 import { allocateCents, effectiveAllocation, formatUsd, localDateISO, toCents } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
-import type { IncomeSource, PrintxPaySource } from '../types'
+import type { IncomeSource } from '../types'
 
 export function AddIncome() {
   const { addIncome, state } = useMoney()
@@ -34,7 +34,6 @@ export function AddIncome() {
 
   const [amount, setAmount] = useState('')
   const [source, setSource] = useState<IncomeSource>(initialSource)
-  const [printxSource, setPrintxSource] = useState<PrintxPaySource>('cash')
   const [date, setDate] = useState(localDateISO)
   const [description, setDescription] = useState(() => {
     const biz = state.settings.businesses.find((b) => b.id === initialSource)
@@ -47,8 +46,6 @@ export function AddIncome() {
   const splitPct = effectiveAllocation(state.settings)
   const preview = allocateCents(cents, splitPct)
   const selectedBusiness = state.settings.businesses.find((b) => b.id === source)
-  const isPrintxSource =
-    source === 'printx' || selectedBusiness?.kind === 'printx' || selectedBusiness?.id === 'printx'
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -59,7 +56,6 @@ export function AddIncome() {
       source,
       date,
       description,
-      printxSource: isPrintxSource ? printxSource : undefined,
     })
     if (!res.ok) {
       setError(res.error)
@@ -136,20 +132,6 @@ export function AddIncome() {
             </p>
           ) : null}
         </div>
-        {isPrintxSource ? (
-          <div>
-            <label className="label">PrintX pay type</label>
-            <NativeSelect
-              aria-label="PrintX pay type"
-              value={printxSource}
-              onChange={(v) => setPrintxSource(v as PrintxPaySource)}
-              options={[
-                { value: 'cash', label: 'Cash' },
-                { value: 'stripe', label: 'Stripe' },
-              ]}
-            />
-          </div>
-        ) : null}
         {selectedBusiness ? (
           <p className="text-sm text-[var(--muted)]">
             Counted under <span className="font-semibold text-[var(--text)]">{selectedBusiness.name}</span>

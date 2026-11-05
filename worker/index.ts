@@ -6,6 +6,15 @@
 import * as OTPAuth from 'otpauth'
 import { createClient } from '@supabase/supabase-js'
 import { applyDueRecurring } from '../src/lib/recurring'
+import { runFundlyAiChat, type CoachChatMessage } from '../src/lib/geminiChat'
+import {
+  appendCoachMessages,
+  createCoachChat,
+  deleteCoachChat,
+  listCoachChats,
+  listCoachMessages,
+  renameCoachChat,
+} from '../src/lib/coachCloud'
 import type { AppState } from '../src/types'
 
 export interface Env {
@@ -17,6 +26,8 @@ export interface Env {
   FUNDLY_TOTP_SECRET?: string
   SUPABASE_URL?: string
   SUPABASE_SERVICE_ROLE_KEY?: string
+  /** Google Gemini API key for Fundly Coach (never expose to client). */
+  GEMINI_API_KEY?: string
   /** Optional Web Push VAPID keys (PEM or base64url). Without them, cron still applies money. */
   VAPID_PUBLIC_KEY?: string
   VAPID_PRIVATE_KEY?: string
@@ -389,6 +400,100 @@ export default {
       )
       if (error) return j({ error: error.message }, 500)
       return j({ ok: true })
+    }
+
+    if (path === '/api/ai/status' && request.method === 'GET') {
+      if (!unlocked) return j({ error: 'Locked' }, 401)
+      return j({ configured: Boolean(env.GEMINI_API_KEY?.trim()) })
+    }
+
+    if (path === '/api/ai/chats' && request.method === 'GET') {
+      if (!unlocked) return j({ error: 'Locked' }, 401)
+      const result = await listCoachChats(env)
+      if (!result.ok) return j({ error: result.error }, 500)
+      return j({ chats: result.chats })
+    }
+
+    if (path === '/api/ai/chats' && request.method === 'POST') {
+      if (!unlocked) return j({ error: 'Locked' }, 401)
+      const body = (await request.json().catch(() => ({}))) as { title?: string }
+      const result = await createCoachChat(env, body.title)
+      if (!result.ok) return j({ error: result.error }, 500)
+      return j({ chat: result.chat })
+    }
+
+    const chatMatch = path.match(/^\/api\/ai\/chats\/([^/]+)(?:\/(messages))?$/)
+    if (chatMatch) {
+      if (!unlocked) return j({ error: 'Locked' }, 401)
+      const chatId = decodeURIComponent(chatMatch[1] || '')
+      const isMessages = chatMatch[2] === 'messages'
+
+      if (isMessages && request.method === 'GET') {
+        const result = await listCoachMessages(env, chatId)
+        if (!result.ok) return j({ error: result.error }, result.error === 'Chat not found' ? 404 : 500)
+        return j({ messages: result.messages })
+      }
+
+      if (isMessages && request.method === 'POST') {
+        const body = (await request.json().catch(() => ({}))) as { messages?: unknown[] }
+        const raw = Array.isArray(body.messages) ? body.messages : []
+        const messages = raw
+          .map((m) => {
+            if (!m || typeof m !== 'object') return null
+            const o = m as Record<string, unknown>
+            const role = o.role === 'assistant' ? 'assistant' : o.role === 'user' ? 'user' : null
+            const content = typeof o.content === 'string' ? o.content : ''
+            if (!role || !content.trim()) return null
+            return {
+              role: role as 'user' | 'assistant',
+              content,
+              pendingAction: o.pendingAction ?? null,
+            }
+          })
+          .filter(Boolean) as Array<{
+          role: 'user' | 'assistant'
+          content: string
+          pendingAction?: unknown | null
+        }>
+        const result = await appendCoachMessages(env, chatId, messages)
+        if (!result.ok) return j({ error: result.error }, result.error === 'Chat not found' ? 404 : 500)
+        return j({ ok: true, title: result.title })
+      }
+
+      if (!isMessages && request.method === 'PATCH') {
+        const body = (await request.json().catch(() => ({}))) as { title?: string }
+        if (typeof body.title !== 'string') return j({ error: 'title required' }, 400)
+        const result = await renameCoachChat(env, chatId, body.title)
+        if (!result.ok) return j({ error: result.error }, result.error === 'Chat not found' ? 404 : 500)
+        return j({ ok: true })
+      }
+
+      if (!isMessages && request.method === 'DELETE') {
+        const result = await deleteCoachChat(env, chatId)
+        if (!result.ok) return j({ error: result.error }, result.error === 'Chat not found' ? 404 : 500)
+        return j({ ok: true })
+      }
+    }
+
+    if (path === '/api/ai/chat' && request.method === 'POST') {
+      if (!unlocked) return j({ error: 'Locked' }, 401)
+      const body = (await request.json().catch(() => ({}))) as {
+        messages?: CoachChatMessage[]
+        snapshot?: unknown
+      }
+      const messages = Array.isArray(body.messages) ? body.messages : []
+      const result = await runFundlyAiChat({
+        apiKey: env.GEMINI_API_KEY || '',
+        messages,
+        snapshot: body.snapshot ?? {},
+      })
+      if (!result.ok) return j({ error: result.error }, result.status || 502)
+      return j({
+        ok: true,
+        reply: result.reply,
+        pendingAction: result.pendingAction,
+        configured: true,
+      })
     }
 
     if (path === '/api/printx/status' && request.method === 'GET') {

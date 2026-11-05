@@ -8,6 +8,7 @@ import {
   isValidAllocationPct,
   planSpendAcrossPots,
   toCents,
+  validateExactSlices,
   type AllocationCents,
 } from './money.ts'
 import type { Transaction } from '../types.ts'
@@ -101,6 +102,28 @@ assert(!isValidAllocationPct({ iphone: 60, spending: 20, extra: 10, charity: 11 
   const a = allocateCents(toCents(100), on)
   assert(a.extra === 0, 'travel allocate Extra 0')
   assert(a.spending === 3000, 'travel allocate Spending 30%')
+}
+
+// Exact multi-pot slices
+{
+  const bal = { iphone: 5000, spending: 2000, extra: 1500, charity: 500 }
+  const ok = validateExactSlices(bal, 2500, [
+    { account: 'spending', cents: 1500 },
+    { account: 'extra', cents: 1000 },
+  ])
+  assert(ok.ok, 'exact slices ok')
+  const badSum = validateExactSlices(bal, 2500, [{ account: 'spending', cents: 1000 }])
+  assert(!badSum.ok, 'exact sum mismatch')
+  const over = validateExactSlices(bal, 3000, [
+    { account: 'spending', cents: 2000 },
+    { account: 'extra', cents: 1000 },
+  ])
+  assert(over.ok, 'exact within balances')
+  const tooMuch = validateExactSlices(bal, 4000, [
+    { account: 'spending', cents: 3000 },
+    { account: 'extra', cents: 1000 },
+  ])
+  assert(!tooMuch.ok, 'exact over balance')
 }
 
 // spend only hits spending — Goal/Extra/Charity untouched

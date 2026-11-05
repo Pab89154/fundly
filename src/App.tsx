@@ -15,6 +15,7 @@ import { Transactions } from './pages/Transactions'
 import { ImportStatement } from './pages/ImportStatement'
 import { Settings } from './pages/Settings'
 import { Recurring } from './pages/Recurring'
+import { Coach } from './pages/Coach'
 import { Onboarding } from './pages/Onboarding'
 
 function Guard({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ function AppRoutes() {
         <Route path="recurring" element={<Recurring />} />
         <Route path="transactions" element={<Transactions />} />
         <Route path="import" element={<ImportStatement />} />
+        <Route path="coach" element={<Coach />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

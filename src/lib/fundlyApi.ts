@@ -159,6 +159,152 @@ export type PrintxSyncResult = {
 }
 
 /** Pull PrintX settlements + open owed (requires unlocked session). */
+export async function fetchAiCoachStatus(): Promise<
+  { ok: true; configured: boolean } | { ok: false; error: string }
+> {
+  const res = await fetch(apiUrl('/api/ai/status'), {
+    credentials: 'include',
+    headers: authHeaders(),
+  })
+  const data = await parseJson<{ configured?: boolean; error?: string }>(res)
+  if (!res.ok) return { ok: false, error: data.error || 'Could not check Coach' }
+  return { ok: true, configured: Boolean(data.configured) }
+}
+
+export async function postAiCoachChat(input: {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  snapshot: unknown
+}): Promise<
+  | {
+      ok: true
+      reply: string
+      pendingAction: import('./geminiChat').PendingAction | null
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch(apiUrl('/api/ai/chat'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(70_000),
+    })
+    const data = await parseJson<{
+      ok?: boolean
+      reply?: string
+      pendingAction?: import('./geminiChat').PendingAction | null
+      error?: string
+    }>(res)
+    if (!res.ok) return { ok: false, error: data.error || `Coach failed (${res.status})` }
+    return {
+      ok: true,
+      reply: String(data.reply || ''),
+      pendingAction: data.pendingAction ?? null,
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Coach failed'
+    if (/abort|timeout/i.test(msg)) {
+      return { ok: false, error: 'Coach timed out. Try again with a shorter question.' }
+    }
+    return { ok: false, error: msg }
+  }
+}
+
+export type CoachChatSummary = {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type CoachStoredMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  pendingAction: import('./geminiChat').PendingAction | null
+  seq: number
+  createdAt: string
+}
+
+export async function fetchCoachChats(): Promise<
+  { ok: true; chats: CoachChatSummary[] } | { ok: false; error: string }
+> {
+  const res = await fetch(apiUrl('/api/ai/chats'), {
+    credentials: 'include',
+    headers: authHeaders(),
+  })
+  const data = await parseJson<{ chats?: CoachChatSummary[]; error?: string }>(res)
+  if (!res.ok) return { ok: false, error: data.error || 'Could not load chats' }
+  return { ok: true, chats: Array.isArray(data.chats) ? data.chats : [] }
+}
+
+export async function createCoachChat(title?: string): Promise<
+  { ok: true; chat: CoachChatSummary } | { ok: false; error: string }
+> {
+  const res = await fetch(apiUrl('/api/ai/chats'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ title }),
+  })
+  const data = await parseJson<{ chat?: CoachChatSummary; error?: string }>(res)
+  if (!res.ok || !data.chat) return { ok: false, error: data.error || 'Could not create chat' }
+  return { ok: true, chat: data.chat }
+}
+
+export async function fetchCoachMessages(
+  chatId: string,
+): Promise<{ ok: true; messages: CoachStoredMessage[] } | { ok: false; error: string }> {
+  const res = await fetch(apiUrl(`/api/ai/chats/${encodeURIComponent(chatId)}/messages`), {
+    credentials: 'include',
+    headers: authHeaders(),
+  })
+  const data = await parseJson<{ messages?: CoachStoredMessage[]; error?: string }>(res)
+  if (!res.ok) return { ok: false, error: data.error || 'Could not load messages' }
+  return {
+    ok: true,
+    messages: Array.isArray(data.messages)
+      ? data.messages.map((m) => ({
+          ...m,
+          pendingAction: (m.pendingAction as import('./geminiChat').PendingAction | null) ?? null,
+        }))
+      : [],
+  }
+}
+
+export async function appendCoachMessages(
+  chatId: string,
+  messages: Array<{
+    role: 'user' | 'assistant'
+    content: string
+    pendingAction?: import('./geminiChat').PendingAction | null
+  }>,
+): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
+  const res = await fetch(apiUrl(`/api/ai/chats/${encodeURIComponent(chatId)}/messages`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ messages }),
+  })
+  const data = await parseJson<{ ok?: boolean; title?: string; error?: string }>(res)
+  if (!res.ok) return { ok: false, error: data.error || 'Could not save messages' }
+  return { ok: true, title: String(data.title || 'New chat') }
+}
+
+export async function deleteCoachChat(
+  chatId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch(apiUrl(`/api/ai/chats/${encodeURIComponent(chatId)}`), {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: authHeaders(),
+  })
+  const data = await parseJson<{ error?: string }>(res)
+  if (!res.ok) return { ok: false, error: data.error || 'Could not delete chat' }
+  return { ok: true }
+}
+
 export async function fetchPrintxSync(): Promise<
   { ok: true; data: PrintxSyncResult } | { ok: false; error: string; configured?: boolean }
 > {

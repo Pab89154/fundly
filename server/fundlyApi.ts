@@ -15,6 +15,15 @@ import {
   type FundlyEnv,
 } from './fundlyAuth.ts'
 import { loadAppState, normalizeState, saveAppState } from './fundlyStore.ts'
+import {
+  appendCoachMessages,
+  createCoachChat,
+  deleteCoachChat,
+  listCoachChats,
+  listCoachMessages,
+  renameCoachChat,
+} from '../src/lib/coachCloud.ts'
+import { runFundlyAiChat, type CoachChatMessage } from '../src/lib/geminiChat.ts'
 
 function json(res: ServerResponse, status: number, body: unknown, cookies?: string | string[]) {
   res.statusCode = status
@@ -183,6 +192,168 @@ export async function handleFundlyApi(
       return true
     }
     json(res, 200, { ok: true })
+    return true
+  }
+
+  if (path === '/api/ai/status' && method === 'GET') {
+    if (!hasFullSession(env, cookie, authorization)) {
+      json(res, 401, { error: 'Locked' })
+      return true
+    }
+    json(res, 200, { configured: Boolean(env.GEMINI_API_KEY?.trim()) })
+    return true
+  }
+
+  if (path === '/api/ai/chats' && method === 'GET') {
+    if (!hasFullSession(env, cookie, authorization)) {
+      json(res, 401, { error: 'Locked' })
+      return true
+    }
+    const result = await listCoachChats(env)
+    if (!result.ok) {
+      json(res, 500, { error: result.error })
+      return true
+    }
+    json(res, 200, { chats: result.chats })
+    return true
+  }
+
+  if (path === '/api/ai/chats' && method === 'POST') {
+    if (!hasFullSession(env, cookie, authorization)) {
+      json(res, 401, { error: 'Locked' })
+      return true
+    }
+    let body: Record<string, unknown> = {}
+    try {
+      body = await readJson(req)
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' })
+      return true
+    }
+    const result = await createCoachChat(env, typeof body.title === 'string' ? body.title : undefined)
+    if (!result.ok) {
+      json(res, 500, { error: result.error })
+      return true
+    }
+    json(res, 200, { chat: result.chat })
+    return true
+  }
+
+  const chatMatch = path.match(/^\/api\/ai\/chats\/([^/]+)(?:\/(messages))?$/)
+  if (chatMatch) {
+    if (!hasFullSession(env, cookie, authorization)) {
+      json(res, 401, { error: 'Locked' })
+      return true
+    }
+    const chatId = decodeURIComponent(chatMatch[1] || '')
+    const isMessages = chatMatch[2] === 'messages'
+
+    if (isMessages && method === 'GET') {
+      const result = await listCoachMessages(env, chatId)
+      if (!result.ok) {
+        json(res, result.error === 'Chat not found' ? 404 : 500, { error: result.error })
+        return true
+      }
+      json(res, 200, { messages: result.messages })
+      return true
+    }
+
+    if (isMessages && method === 'POST') {
+      let body: Record<string, unknown>
+      try {
+        body = await readJson(req)
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' })
+        return true
+      }
+      const raw = Array.isArray(body.messages) ? body.messages : []
+      const messages = raw
+        .map((m) => {
+          if (!m || typeof m !== 'object') return null
+          const o = m as Record<string, unknown>
+          const role = o.role === 'assistant' ? 'assistant' : o.role === 'user' ? 'user' : null
+          const content = typeof o.content === 'string' ? o.content : ''
+          if (!role || !content.trim()) return null
+          return {
+            role: role as 'user' | 'assistant',
+            content,
+            pendingAction: o.pendingAction ?? null,
+          }
+        })
+        .filter(Boolean) as Array<{
+        role: 'user' | 'assistant'
+        content: string
+        pendingAction?: unknown | null
+      }>
+      const result = await appendCoachMessages(env, chatId, messages)
+      if (!result.ok) {
+        json(res, result.error === 'Chat not found' ? 404 : 500, { error: result.error })
+        return true
+      }
+      json(res, 200, { ok: true, title: result.title })
+      return true
+    }
+
+    if (!isMessages && method === 'PATCH') {
+      let body: Record<string, unknown>
+      try {
+        body = await readJson(req)
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' })
+        return true
+      }
+      if (typeof body.title !== 'string') {
+        json(res, 400, { error: 'title required' })
+        return true
+      }
+      const result = await renameCoachChat(env, chatId, body.title)
+      if (!result.ok) {
+        json(res, result.error === 'Chat not found' ? 404 : 500, { error: result.error })
+        return true
+      }
+      json(res, 200, { ok: true })
+      return true
+    }
+
+    if (!isMessages && method === 'DELETE') {
+      const result = await deleteCoachChat(env, chatId)
+      if (!result.ok) {
+        json(res, result.error === 'Chat not found' ? 404 : 500, { error: result.error })
+        return true
+      }
+      json(res, 200, { ok: true })
+      return true
+    }
+  }
+
+  if (path === '/api/ai/chat' && method === 'POST') {
+    if (!hasFullSession(env, cookie, authorization)) {
+      json(res, 401, { error: 'Locked' })
+      return true
+    }
+    let body: Record<string, unknown>
+    try {
+      body = await readJson(req)
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' })
+      return true
+    }
+    const messages = Array.isArray(body.messages) ? (body.messages as CoachChatMessage[]) : []
+    const result = await runFundlyAiChat({
+      apiKey: env.GEMINI_API_KEY || '',
+      messages,
+      snapshot: body.snapshot ?? {},
+    })
+    if (!result.ok) {
+      json(res, result.status || 502, { error: result.error })
+      return true
+    }
+    json(res, 200, {
+      ok: true,
+      reply: result.reply,
+      pendingAction: result.pendingAction,
+      configured: true,
+    })
     return true
   }
 

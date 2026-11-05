@@ -7,7 +7,9 @@ import {
   localDateISO,
   planSpendAcrossPots,
   toCents,
+  validateExactSlices,
   type AccountId,
+  type SpendSlice,
 } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import type { SpendCategory } from '../types'
@@ -21,6 +23,8 @@ const POTS: { id: AccountId; label: string }[] = [
   { id: 'charity', label: 'Charity' },
 ]
 
+type PayMode = 'single' | 'exact' | 'combine'
+
 export function Spending() {
   const { addSpending, balances, state } = useMoney()
   const [amount, setAmount] = useState('')
@@ -30,6 +34,8 @@ export function Spending() {
   const [date, setDate] = useState(localDateISO)
   const [combineFrom, setCombineFrom] = useState<AccountId[]>([])
   const [showCombine, setShowCombine] = useState(false)
+  const [payMode, setPayMode] = useState<PayMode>('single')
+  const [exactUsd, setExactUsd] = useState<Partial<Record<AccountId, string>>>({})
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
 
@@ -44,9 +50,26 @@ export function Spending() {
   )
 
   const preview = useMemo(() => {
-    if (!(amountCents > 0) || !showCombine) return null
+    if (!(amountCents > 0) || !showCombine || payMode !== 'combine') return null
     return planSpendAcrossPots(balances, amountCents, fromAccount, combineFrom)
-  }, [amountCents, balances, combineFrom, fromAccount, showCombine])
+  }, [amountCents, balances, combineFrom, fromAccount, showCombine, payMode])
+
+  const exactSlices: SpendSlice[] = useMemo(() => {
+    const out: SpendSlice[] = []
+    for (const p of POTS) {
+      const raw = exactUsd[p.id]
+      if (raw == null || raw === '') continue
+      const cents = toCents(Number(raw))
+      if (cents > 0) out.push({ account: p.id, cents })
+    }
+    return out
+  }, [exactUsd])
+
+  const exactSumCents = exactSlices.reduce((s, x) => s + x.cents, 0)
+  const exactCheck =
+    payMode === 'exact' && amountCents > 0
+      ? validateExactSlices(balances, amountCents, exactSlices)
+      : null
 
   const toggleHelper = (id: AccountId) => {
     setCombineFrom((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -57,9 +80,11 @@ export function Spending() {
     setDescription('')
     setCombineFrom([])
     setShowCombine(false)
+    setExactUsd({})
+    setPayMode('single')
   }
 
-  const record = (helpers: AccountId[]) => {
+  const record = (helpers: AccountId[], slices?: SpendSlice[]) => {
     setError('')
     setOk('')
     const res = addSpending({
@@ -69,12 +94,19 @@ export function Spending() {
       category,
       fromAccount,
       combineFrom: helpers,
+      slices,
     })
     if (!res.ok) {
       setError(res.error)
-      if (res.shortfallCents != null && helpers.length === 0 && helperPots.length > 0) {
+      if (
+        !slices &&
+        res.shortfallCents != null &&
+        helpers.length === 0 &&
+        helperPots.length > 0 &&
+        payMode === 'single'
+      ) {
         setShowCombine(true)
-        // Pre-select helpers in Extra → Goal → Charity / remaining order that have cash
+        setPayMode('combine')
         const preferred = (['extra', 'iphone', 'charity', 'spending'] as AccountId[]).filter(
           (id) => id !== fromAccount && balances[id] > 0,
         )
@@ -95,7 +127,15 @@ export function Spending() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    record(showCombine ? combineFrom : [])
+    if (payMode === 'exact') {
+      if (!exactCheck?.ok) {
+        setError(exactCheck && !exactCheck.ok ? exactCheck.error : 'Enter amounts from each pot.')
+        return
+      }
+      record([], exactCheck.slices)
+      return
+    }
+    record(showCombine || payMode === 'combine' ? combineFrom : [])
   }
 
   return (
@@ -106,7 +146,7 @@ export function Spending() {
           Spending
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Record a purchase and choose which pot pays. If that pot is short, combine from others.
+          Record a purchase from one pot, type exact amounts from several, or auto-combine when short.
           {state.settings.travelMode
             ? ' Travel Mode is on — Extra is folded into Spending.'
             : ''}
@@ -121,7 +161,7 @@ export function Spending() {
         <p className="mt-2 text-3xl font-extrabold text-[var(--blue)]">
           {formatUsd(balances.spending)}
         </p>
-        {fromAccount !== 'spending' ? (
+        {fromAccount !== 'spending' && payMode !== 'exact' ? (
           <p className="mt-2 text-sm text-[var(--muted)]">
             Paying from {fromLabel}: {formatUsd(fromBal)} available
           </p>
@@ -130,24 +170,49 @@ export function Spending() {
 
       <form className="card space-y-4 p-5" onSubmit={onSubmit}>
         <div>
-          <label className="label" htmlFor="from">
-            Pay from
-          </label>
+          <label className="label">How to pay</label>
           <NativeSelect
-            aria-label="Pay from"
-            value={fromAccount}
+            aria-label="How to pay"
+            value={payMode}
             onChange={(v) => {
-              setFromAccount(v as AccountId)
+              const mode = v as PayMode
+              setPayMode(mode)
+              setShowCombine(mode === 'combine')
               setCombineFrom([])
-              setShowCombine(false)
               setError('')
+              if (mode === 'exact') {
+                setExactUsd({ spending: amount || '' })
+              }
             }}
-            options={POTS.map((p) => ({
-              value: p.id,
-              label: `${p.label} (${formatUsd(balances[p.id])})`,
-            }))}
+            options={[
+              { value: 'single', label: 'One pot' },
+              { value: 'exact', label: 'Exact amounts from pots' },
+              { value: 'combine', label: 'Auto-combine if short' },
+            ]}
           />
         </div>
+
+        {payMode !== 'exact' ? (
+          <div>
+            <label className="label" htmlFor="from">
+              Pay from
+            </label>
+            <NativeSelect
+              aria-label="Pay from"
+              value={fromAccount}
+              onChange={(v) => {
+                setFromAccount(v as AccountId)
+                setCombineFrom([])
+                setError('')
+              }}
+              options={POTS.map((p) => ({
+                value: p.id,
+                label: `${p.label} (${formatUsd(balances[p.id])})`,
+              }))}
+            />
+          </div>
+        ) : null}
+
         <div>
           <label className="label" htmlFor="amount">
             Amount
@@ -165,18 +230,63 @@ export function Spending() {
               value={amount}
               onChange={(e) => {
                 setAmount(e.target.value)
-                setShowCombine(false)
                 setError('')
               }}
               required
             />
           </div>
-          {amountCents > fromBal && fromBal >= 0 ? (
+          {payMode === 'single' && amountCents > fromBal && fromBal >= 0 ? (
             <p className="mt-2 text-sm text-[var(--orange)]">
-              {fromLabel} only has {formatUsd(fromBal)} — need {formatUsd(shortfallCents)} more.
+              {fromLabel} only has {formatUsd(fromBal)} — need {formatUsd(shortfallCents)} more. Switch
+              to exact amounts or auto-combine.
             </p>
           ) : null}
         </div>
+
+        {payMode === 'exact' ? (
+          <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card-2)] p-4">
+            <p className="text-sm font-semibold">How much from each pot</p>
+            <p className="text-xs text-[var(--muted)]">
+              Enter dollars per pot. They must add up to {formatUsd(amountCents) || '$0.00'}.
+            </p>
+            <ul className="space-y-2">
+              {POTS.map((p) => (
+                <li key={p.id} className="flex items-center gap-2">
+                  <span className="w-28 shrink-0 text-sm font-semibold">{p.label}</span>
+                  <input
+                    className="field flex-1"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={exactUsd[p.id] ?? ''}
+                    onChange={(e) =>
+                      setExactUsd((prev) => ({ ...prev, [p.id]: e.target.value }))
+                    }
+                    aria-label={`Amount from ${p.label}`}
+                  />
+                  <span className="w-16 shrink-0 text-right text-xs text-[var(--muted)]">
+                    {formatUsd(balances[p.id])}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p
+              className={`text-sm font-semibold ${
+                exactSumCents === amountCents && amountCents > 0
+                  ? 'text-[var(--green)]'
+                  : 'text-[var(--orange)]'
+              }`}
+            >
+              Entered {formatUsd(exactSumCents)}
+              {amountCents > 0 ? ` of ${formatUsd(amountCents)}` : ''}
+            </p>
+            {exactCheck && !exactCheck.ok ? (
+              <p className="text-sm text-[var(--danger)]">{exactCheck.error}</p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div>
           <label className="label" htmlFor="cat">
             Category
@@ -214,9 +324,9 @@ export function Spending() {
           />
         </div>
 
-        {showCombine && helperPots.length > 0 ? (
+        {(payMode === 'combine' || showCombine) && helperPots.length > 0 ? (
           <div className="space-y-3 rounded-xl border border-[var(--orange)]/40 bg-[var(--orange)]/10 p-4">
-            <p className="text-sm font-semibold text-[var(--orange)]">Combine from other pots</p>
+            <p className="text-sm font-semibold text-[var(--orange)]">Auto-combine from other pots</p>
             <p className="text-sm text-[var(--muted)]">
               Use {formatUsd(Math.max(0, fromBal))} from {fromLabel}, then cover the rest from:
             </p>
@@ -252,48 +362,17 @@ export function Spending() {
         {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
         {ok ? <p className="text-sm text-[var(--green)]">{ok}</p> : null}
 
-        {showCombine ? (
-          <div className="flex flex-wrap gap-2">
-            <button type="submit" className="btn btn-primary flex-1">
-              Combine & record
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => {
-                setShowCombine(false)
-                setCombineFrom([])
-                setError('')
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : amountCents > fromBal && helperPots.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="btn btn-primary flex-1"
-              onClick={() => {
-                setShowCombine(true)
-                setError('')
-                const preferred = (['extra', 'iphone', 'charity', 'spending'] as AccountId[]).filter(
-                  (id) => id !== fromAccount && balances[id] > 0,
-                )
-                setCombineFrom(preferred)
-              }}
-            >
-              Combine pots…
-            </button>
-            <button type="submit" className="btn btn-secondary">
-              Try anyway
-            </button>
-          </div>
-        ) : (
-          <button type="submit" className="btn btn-primary w-full">
-            Record purchase
-          </button>
-        )}
+        <button
+          type="submit"
+          className="btn btn-primary w-full"
+          disabled={payMode === 'exact' && !(exactCheck?.ok)}
+        >
+          {payMode === 'exact'
+            ? 'Record with exact split'
+            : payMode === 'combine' || showCombine
+              ? 'Combine & record'
+              : 'Record purchase'}
+        </button>
       </form>
     </div>
   )

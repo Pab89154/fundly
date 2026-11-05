@@ -17,16 +17,19 @@ import {
   X,
 } from 'lucide-react'
 import { CelebrationModal } from './CelebrationModal'
+import { CoachCapIcon } from './CoachCapIcon'
 import { FundlyLogo } from './FundlyLogo'
 import { TimezonePrompt } from './TimezonePrompt'
 import { BusinessLogo } from './BusinessLogo'
 import { useMoney } from '../store/MoneyContext'
 import { businessHref, type Business } from '../types'
 
+type NavIcon = typeof LayoutDashboard | typeof CoachCapIcon
+
 type NavItem = {
   to: string
   label: string
-  icon: typeof LayoutDashboard
+  icon: NavIcon
   business?: Business
 }
 
@@ -42,6 +45,7 @@ const coreNavBeforeBiz: NavItem[] = [
 const coreNavAfterBiz: NavItem[] = [
   { to: '/transactions', label: 'Transactions', icon: History },
   { to: '/import', label: 'Import', icon: FileText },
+  { to: '/coach', label: 'Coach', icon: CoachCapIcon },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
