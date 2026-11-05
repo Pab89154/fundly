@@ -18,8 +18,6 @@ import {
   startOfMonth,
   startOfWeek,
 } from '../lib/balances'
-import type { PrintxFeedEvent } from '../types'
-
 type SyncStatus = {
   configured: boolean
   base?: string
@@ -28,8 +26,7 @@ type SyncStatus = {
 export function PrintXPage() {
   const {
     state,
-    importPrintxEvents,
-    setPrintxOpenOwed,
+    syncPrintxNow,
     undoResolvePrintx,
     canUndoResolvePrintx,
     printxOpenRemainingCents,
@@ -92,30 +89,16 @@ export function PrintXPage() {
     setErr('')
     setMsg('')
     try {
-      // Always pull the full settle:* feed so missing pot imports can repair.
-      const res = await fetch(apiUrl('/api/printx/sync'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      const data = (await res.json()) as {
-        error?: string
-        configured?: boolean
-        events?: PrintxFeedEvent[]
-        openOwedUsd?: number
-      }
-      if (!res.ok) {
-        setErr(data.error || `Sync failed (${res.status})`)
-        setStatus({ configured: Boolean(data.configured) })
+      const result = await syncPrintxNow()
+      if (!result.ok) {
+        setErr(result.error)
+        setStatus({ configured: Boolean(result.configured) })
         return
       }
-      const result = importPrintxEvents(data.events || [])
-      if (typeof data.openOwedUsd === 'number') {
-        setPrintxOpenOwed(data.openOwedUsd)
-      }
       const openLabel =
-        typeof data.openOwedUsd === 'number' ? ` · open $${data.openOwedUsd.toFixed(2)}` : ''
+        typeof result.openOwedUsd === 'number'
+          ? ` · open $${result.openOwedUsd.toFixed(2)}`
+          : ''
       if (result.imported > 0) {
         setMsg(
           `Synced ${result.imported} PrintX settlement${result.imported === 1 ? '' : 's'} into your pots${openLabel}`,
@@ -141,14 +124,6 @@ export function PrintXPage() {
     setMsg(`Undid last settlement · ${formatUsd(res.undoneCents)} removed from pots.`)
   }
 
-  useEffect(() => {
-    if (!state.settings.onboardingComplete) return
-    if (!status?.configured) return
-    if (state.settings.lastSyncedAt) return
-    void sync()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.configured, state.settings.onboardingComplete])
-
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -166,11 +141,11 @@ export function PrintXPage() {
             ·{' '}
             <a
               className="inline-flex items-center gap-1 text-[var(--blue)] underline"
-              href="https://printx.pw/money"
+              href="https://portal.printx.pw/money"
               target="_blank"
               rel="noreferrer"
             >
-              printx.pw/money
+              portal.printx.pw/money
               <ExternalLink size={14} aria-hidden />
             </a>
           </p>
@@ -223,7 +198,7 @@ export function PrintXPage() {
             {formatUsd(printxOpenRemainingCents)}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Still owed on printx.pw/money — Mark settled there, then Sync
+            Still owed on portal.printx.pw/money — Mark settled there, then Sync
           </p>
         </div>
         <div className="card p-5">

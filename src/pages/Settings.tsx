@@ -9,6 +9,7 @@ import {
   Lock,
   Gift,
   Pencil,
+  Plane,
   Plus,
   Settings as SettingsIcon,
   Target,
@@ -72,6 +73,7 @@ export function Settings() {
   const {
     state,
     updateSettings,
+    setTravelMode,
     resetAllData,
     cloud,
   } = useMoney()
@@ -982,6 +984,42 @@ export function Settings() {
             }
             options={WEEKDAYS}
           />
+        </div>
+      </section>
+
+      <section className="card space-y-3 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 font-bold">
+              <Plane size={18} className="text-[var(--orange)]" aria-hidden />
+              Travel Mode
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Extra merges into Spending so you have more to spend while traveling. Turning it off
+              leaves that money in Spending and new income goes back to your normal split.
+            </p>
+          </div>
+          <label className="flex shrink-0 items-center gap-2 text-sm font-semibold">
+            <input
+              type="checkbox"
+              checked={Boolean(state.settings.travelMode)}
+              onChange={(e) => {
+                const res = setTravelMode(e.target.checked)
+                if (!res.ok) {
+                  setMsg('')
+                  setErr(res.error)
+                  return
+                }
+                setErr('')
+                setMsg(
+                  e.target.checked
+                    ? 'Travel Mode on — Extra is in Spending.'
+                    : 'Travel Mode off — Extra stays in Spending; new income splits normally.',
+                )
+              }}
+            />
+            {state.settings.travelMode ? 'On' : 'Off'}
+          </label>
         </div>
       </section>
 

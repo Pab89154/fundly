@@ -55,6 +55,7 @@ export function loadState(): AppState {
         ...empty,
         ...parsed.settings,
         allocation: normalizeAllocationPct(parsed.settings.allocation),
+        travelMode: Boolean(parsed.settings.travelMode),
         activeGoal,
         goalCents: activeGoal?.targetCents ?? 0,
         businesses: normalizeBusinesses(parsed.settings.businesses),

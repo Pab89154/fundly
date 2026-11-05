@@ -11,6 +11,7 @@ import {
 import {
   ACCOUNT_LABELS,
   allocateCents,
+  effectiveAllocation,
   formatUsd,
   fromCents,
   isValidAllocationPct,
@@ -41,7 +42,7 @@ import { applyGoalUnlocks, type CelebrationPayload } from '../lib/milestones'
 import { applyDueRecurring, logWeeklyAllowanceTx } from '../lib/recurring'
 import { clearState, loadState, newId, saveState } from '../lib/storage'
 import { detectDeviceTimeZone, isValidTimeZone, zonedDateISO } from '../lib/timezone'
-import { fetchCloudState, logoutFundly, saveCloudState } from '../lib/fundlyApi'
+import { fetchCloudState, fetchPrintxSync, logoutFundly, saveCloudState } from '../lib/fundlyApi'
 import { maybeNotify } from '../lib/notify'
 import {
   createEmptyState,
@@ -215,6 +216,11 @@ type MoneyContextValue = {
     | { ok: false; error: string }
   /** Update open "Owed to me" from PrintX sync. */
   setPrintxOpenOwed: (openOwedUsd: number) => void
+  /** Pull PrintX feed and apply settlements (also runs once after each login). */
+  syncPrintxNow: () => Promise<
+    | { ok: true; imported: number; openOwedUsd?: number }
+    | { ok: false; error: string; configured?: boolean }
+  >
   /**
    * @deprecated Manual resolve removed — Sync imports PrintX settlements.
    * Kept as a no-op for older UI builds.
@@ -250,6 +256,8 @@ type MoneyContextValue = {
   logWeeklyAllowance: () => { ok: true } | { ok: false; error: string }
   upsertSubscription: (sub: Subscription) => { ok: true } | { ok: false; error: string }
   removeSubscription: (id: string) => void
+  /** Travel Mode: merge Extra into Spending until turned off. */
+  setTravelMode: (enabled: boolean) => { ok: true } | { ok: false; error: string }
   cloud: {
     ready: boolean
     empty: boolean
@@ -267,6 +275,7 @@ function normalizeLoadedSettings(settings: Settings, goalBalanceCents = 0): Sett
     ...empty,
     ...settings,
     allocation: normalizeAllocationPct(settings.allocation),
+    travelMode: Boolean(settings.travelMode),
     activeGoal,
     goalCents: activeGoal?.targetCents ?? 0,
     businesses: normalizeBusinesses(settings.businesses),
@@ -443,6 +452,7 @@ export function MoneyProvider({
   const [cloudEmpty, setCloudEmpty] = useState(false)
   const [cloudError, setCloudError] = useState<string | null>(null)
   const [cloudHydrated, setCloudHydrated] = useState(!cloudEnabled)
+  const printxLoginSyncRef = useRef(false)
 
   useEffect(() => {
     saveState(state)
@@ -498,7 +508,8 @@ export function MoneyProvider({
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme
     document.documentElement.classList.toggle('light', state.settings.theme === 'light')
-  }, [state.settings.theme])
+    document.documentElement.classList.toggle('travel', Boolean(state.settings.travelMode))
+  }, [state.settings.theme, state.settings.travelMode])
 
   // Auto-detect timezone; leave unset so UI can prompt if detection fails.
   useEffect(() => {
@@ -627,7 +638,7 @@ export function MoneyProvider({
       const cents = toCents(input.amountUsd)
       if (!(cents > 0)) return { ok: false as const, error: 'Enter an amount greater than $0.' }
       if (!input.date) return { ok: false as const, error: 'Choose a date.' }
-      const allocation = allocateCents(cents, state.settings.allocation)
+      const allocation = allocateCents(cents, effectiveAllocation(state.settings))
       const tx: Transaction = {
         id: newId(),
         type: 'income',
@@ -642,7 +653,7 @@ export function MoneyProvider({
       pushTx(tx)
       return { ok: true as const }
     },
-    [pushTx, state.settings.allocation],
+    [pushTx, state.settings],
   )
 
   const addSpending = useCallback(
@@ -758,7 +769,10 @@ export function MoneyProvider({
           next.amountCents != null &&
           !patch.allocation
         ) {
-          next.allocation = allocateCents(Math.abs(next.amountCents), prev.settings.allocation)
+          next.allocation = allocateCents(
+            Math.abs(next.amountCents),
+            effectiveAllocation(prev.settings),
+          )
         }
 
         if (next.type === 'spending' || next.type === 'apple_cash_purchase') {
@@ -890,6 +904,39 @@ export function MoneyProvider({
     }))
   }, [])
 
+  const setTravelMode = useCallback((enabled: boolean) => {
+    setState((prev) => {
+      if (Boolean(prev.settings.travelMode) === enabled) return prev
+      if (!enabled) {
+        return {
+          ...prev,
+          settings: { ...prev.settings, travelMode: false },
+        }
+      }
+      const bal = computeBalances(prev.transactions)
+      const txs = [...prev.transactions]
+      if (bal.extra > 0) {
+        txs.push({
+          id: newId(),
+          type: 'transfer',
+          amountCents: bal.extra,
+          date: localDateISO(),
+          description: 'Travel Mode — Extra into Spending',
+          fromAccount: 'extra',
+          toAccount: 'spending',
+          tags: ['travel-mode'],
+          createdAt: new Date().toISOString(),
+        })
+      }
+      return {
+        ...prev,
+        transactions: txs,
+        settings: { ...prev.settings, travelMode: true },
+      }
+    })
+    return { ok: true as const }
+  }, [])
+
   const completeOnboarding = useCallback((input: OnboardingInput) => {
     const apple = toCents(input.appleCashUsd)
     if (apple < 0) return { ok: false as const, error: 'Apple Cash balance cannot be negative.' }
@@ -899,7 +946,7 @@ export function MoneyProvider({
     // Virtual pots are calculated from how much you have right now (Apple Cash).
     setState((prev) => {
       const txs: Transaction[] = []
-      const allocationPct = prev.settings.allocation
+      const allocationPct = effectiveAllocation(prev.settings)
       const split = allocateCents(apple, allocationPct)
       if (apple > 0) {
         txs.push({
@@ -1070,7 +1117,7 @@ export function MoneyProvider({
         }
 
         const occurred = ev.occurredAt || new Date().toISOString()
-        const allocation = allocateCents(amountCents, base.settings.allocation)
+        const allocation = allocateCents(amountCents, effectiveAllocation(base.settings))
         const isRefund = ev.kind === 'refund' || ev.kind === 'reversal'
         const tx: Transaction = {
           id: newId(),
@@ -1166,6 +1213,48 @@ export function MoneyProvider({
       },
     }))
   }, [])
+
+  const syncPrintxNow = useCallback(async () => {
+    const pulled = await fetchPrintxSync()
+    if (!pulled.ok) {
+      return {
+        ok: false as const,
+        error: pulled.error,
+        configured: pulled.configured,
+      }
+    }
+    const result = importPrintxEvents(pulled.data.events)
+    if (typeof pulled.data.openOwedUsd === 'number') {
+      setPrintxOpenOwed(pulled.data.openOwedUsd)
+    } else {
+      setState((prev) => ({
+        ...prev,
+        settings: {
+          ...prev.settings,
+          lastSyncedAt: new Date().toISOString(),
+        },
+      }))
+    }
+    return {
+      ok: true as const,
+      imported: result.imported,
+      openOwedUsd: pulled.data.openOwedUsd,
+    }
+  }, [importPrintxEvents, setPrintxOpenOwed])
+
+  // After each unlock/login (MoneyProvider mount), pull PrintX once cloud is ready.
+  useEffect(() => {
+    if (!cloudReady || !cloudHydrated) return
+    if (!state.settings.onboardingComplete) return
+    if (printxLoginSyncRef.current) return
+    printxLoginSyncRef.current = true
+    void syncPrintxNow()
+  }, [
+    cloudReady,
+    cloudHydrated,
+    state.settings.onboardingComplete,
+    syncPrintxNow,
+  ])
 
   const resolvePrintxNow = useCallback(() => {
     return {
@@ -1323,7 +1412,7 @@ export function MoneyProvider({
           continue
         }
         if (row.type === 'income') {
-          const allocation = allocateCents(cents, snapshot.settings.allocation)
+          const allocation = allocateCents(cents, effectiveAllocation(snapshot.settings))
           txs.push({
             id: newId(),
             type: 'income',
@@ -1405,7 +1494,8 @@ export function MoneyProvider({
         error = 'Fix allocation percentages in Settings first (must add to 100%).'
         return prev
       }
-      const target = allocateCents(bal.combined, prev.settings.allocation)
+      const pct = effectiveAllocation(prev.settings)
+      const target = allocateCents(bal.combined, pct)
       const delta: AllocationCents = {
         iphone: target.iphone - bal.iphone,
         spending: target.spending - bal.spending,
@@ -1432,17 +1522,18 @@ export function MoneyProvider({
           tx.type === 'refund' ? -Math.abs(tx.amountCents) : Math.abs(tx.amountCents)
         return {
           ...tx,
-          allocation: allocateCents(signed, prev.settings.allocation),
+          allocation: allocateCents(signed, pct),
           updatedAt: new Date().toISOString(),
         }
       })
-      const a = prev.settings.allocation
       txs.push({
         id: newId(),
         type: 'reconcile',
         amountCents: Math.floor(movedCents / 2),
         date: localDateISO(),
-        description: `Rebalanced pots to ${a.iphone}/${a.spending}/${a.extra}/${a.charity}`,
+        description: prev.settings.travelMode
+          ? `Rebalanced pots to ${pct.iphone}/${pct.spending}/${pct.extra}/${pct.charity} (Travel Mode)`
+          : `Rebalanced pots to ${pct.iphone}/${pct.spending}/${pct.extra}/${pct.charity}`,
         allocation: delta,
         tags: ['rebalance'],
         createdAt: new Date().toISOString(),
@@ -1532,6 +1623,7 @@ export function MoneyProvider({
     settleAllPrintxPending,
     rebalanceToAllocation,
     setPrintxOpenOwed,
+    syncPrintxNow,
     resolvePrintxNow,
     undoResolvePrintx,
     importStatementRows,
@@ -1545,6 +1637,7 @@ export function MoneyProvider({
     logWeeklyAllowance,
     upsertSubscription,
     removeSubscription,
+    setTravelMode,
     cloud: {
       ready: cloudReady,
       empty: cloudEmpty,

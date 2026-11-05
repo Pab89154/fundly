@@ -4,6 +4,7 @@
  */
 import {
   allocateCents,
+  effectiveAllocation,
   isValidAllocationPct,
   planSpendAcrossPots,
   toCents,
@@ -88,6 +89,19 @@ const SPLIT = { iphone: 60, spending: 20, extra: 10, charity: 10 }
 
 assert(isValidAllocationPct(SPLIT), 'valid pct')
 assert(!isValidAllocationPct({ iphone: 60, spending: 20, extra: 10, charity: 11 }), 'invalid pct')
+
+// Travel Mode folds Extra % into Spending
+{
+  const off = effectiveAllocation({ allocation: SPLIT, travelMode: false })
+  assert(off.extra === 10 && off.spending === 20, 'travel off keeps Extra')
+  const on = effectiveAllocation({ allocation: SPLIT, travelMode: true })
+  assert(on.extra === 0, 'travel on Extra 0')
+  assert(on.spending === 30, 'travel on Spending gets Extra share')
+  assert(on.iphone === 60 && on.charity === 10, 'travel keeps Goal/Charity')
+  const a = allocateCents(toCents(100), on)
+  assert(a.extra === 0, 'travel allocate Extra 0')
+  assert(a.spending === 3000, 'travel allocate Spending 30%')
+}
 
 // spend only hits spending — Goal/Extra/Charity untouched
 {

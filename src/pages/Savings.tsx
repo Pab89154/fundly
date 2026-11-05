@@ -243,7 +243,7 @@ export function Savings() {
               Waiting to settle
             </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Prefer PrintX → Sync: Mark settled on printx.pw/money and Fundly imports it. Leftover
+              Prefer PrintX → Sync: Mark settled on portal.printx.pw/money and Fundly imports it. Leftover
               rows below are older imports you can clear here.
             </p>
           </div>
@@ -328,7 +328,7 @@ export function Savings() {
             Create a goal in Settings to unlock milestones.
           </p>
         ) : (
-          <ol className="relative mt-6 space-y-0 border-l-2 border-[var(--green)]/35 pl-5">
+          <ol className="relative mt-6 ml-3.5 space-y-0 border-l-2 border-[var(--green)]/35">
             {milestoneList.map((m) => {
               const hit = balances.iphone >= m.cents
               const isNext = nextMs?.id === m.id
@@ -340,9 +340,9 @@ export function Savings() {
                   ? 100
                   : 0
               return (
-                <li key={m.id} className="relative pb-6 last:pb-0">
+                <li key={m.id} className="relative pb-6 pl-5 last:pb-0">
                   <span
-                    className={`absolute -left-[1.6rem] top-0.5 flex h-7 w-7 items-center justify-center rounded-full border-2 ${
+                    className={`absolute top-0.5 left-0 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full border-2 ${
                       hit
                         ? 'border-[var(--green)] bg-[var(--green)]/20 text-[var(--green)]'
                         : isNext

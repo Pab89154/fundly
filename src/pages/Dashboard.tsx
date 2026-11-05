@@ -171,6 +171,9 @@ export function Dashboard() {
         <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Dashboard</h2>
         <p className="mt-1.5 max-w-2xl text-sm text-[var(--muted)]">
           {active ? `Working toward ${name}.` : 'Set a goal in Settings to track progress.'}
+          {state.settings.travelMode
+            ? ' Travel Mode is on — Extra is folded into Spending.'
+            : ''}
         </p>
       </header>
 

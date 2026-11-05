@@ -33,6 +33,68 @@ html.light {
   color-scheme: light;
 }
 
+/* Travel Mode: warm dusk surfaces + loud sunrise accents (keep light/dark) */
+html.travel {
+  --bg: #1a1410;
+  --card: #2a221c;
+  --card-2: #342a22;
+  --text: #fff6ee;
+  --muted: #c4a990;
+  --border: #5a3d28;
+  --green: #ffb020;
+  --blue: #ff8f5c;
+  --orange: #ff6b3d;
+  --pink: #ff8a6a;
+  --ring: rgba(255, 176, 32, 0.5);
+}
+
+html.light.travel {
+  --bg: #f6ebe0;
+  --card: #fff8f1;
+  --card-2: #ffeeda;
+  --text: #2a180e;
+  --muted: #8a5c3a;
+  --border: #e8c4a0;
+  --green: #d9480f;
+  --blue: #c2410c;
+  --orange: #9a3412;
+  --pink: #c2410c;
+  --ring: rgba(217, 72, 15, 0.35);
+}
+
+html.travel .app-bg {
+  background:
+    radial-gradient(1100px 620px at 8% -8%, rgba(255, 176, 32, 0.38), transparent 58%),
+    radial-gradient(900px 520px at 100% 0%, rgba(255, 107, 61, 0.32), transparent 55%),
+    radial-gradient(700px 400px at 50% 100%, rgba(255, 143, 92, 0.18), transparent 50%),
+    var(--bg);
+}
+
+html.light.travel .app-bg {
+  background:
+    radial-gradient(1100px 620px at 8% -8%, rgba(217, 72, 15, 0.22), transparent 58%),
+    radial-gradient(900px 520px at 100% 0%, rgba(255, 176, 32, 0.2), transparent 55%),
+    radial-gradient(700px 400px at 50% 100%, rgba(234, 88, 12, 0.12), transparent 50%),
+    var(--bg);
+}
+
+.travel-bar {
+  background: linear-gradient(105deg, #ffb020 0%, #ff8f5c 48%, #ff6b3d 100%);
+  color: #1a1008;
+  box-shadow: 0 8px 28px -10px rgba(255, 107, 61, 0.55);
+}
+
+html.light .travel-bar {
+  background: linear-gradient(105deg, #f59e0b 0%, #ea580c 50%, #c2410c 100%);
+  color: #fff8f1;
+  box-shadow: 0 8px 28px -10px rgba(194, 65, 12, 0.4);
+}
+
+html.travel .progress-fill,
+html.travel .btn-primary {
+  background: linear-gradient(90deg, var(--green), var(--orange));
+}
+
 * {
   box-sizing: border-box;
 }

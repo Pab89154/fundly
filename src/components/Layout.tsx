@@ -13,6 +13,7 @@ import {
   Settings,
   LogOut,
   MoreHorizontal,
+  Plane,
   X,
 } from 'lucide-react'
 import { CelebrationModal } from './CelebrationModal'
@@ -82,11 +83,32 @@ export function Layout() {
     setMoreOpen(false)
   }, [location.pathname])
 
+  const travelOn = Boolean(state.settings.travelMode)
+
   return (
     <div className="app-bg flex min-h-dvh w-full flex-col">
       <CelebrationModal />
       <TimezonePrompt />
-      <div className="flex min-h-dvh w-full flex-1">
+      {travelOn ? (
+        <div className="travel-bar sticky top-0 z-50 w-full pt-[env(safe-area-inset-top)]">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3.5 sm:px-6 lg:px-8">
+            <Plane className="shrink-0" size={28} aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-extrabold tracking-tight sm:text-lg">Travel Mode on</p>
+              <p className="text-sm font-medium opacity-90">
+                Extra is in Spending — new income skips Extra until you turn this off.
+              </p>
+            </div>
+            <NavLink
+              to="/settings"
+              className="shrink-0 rounded-xl bg-black/20 px-4 py-2 text-sm font-bold backdrop-blur hover:bg-black/30"
+            >
+              Settings
+            </NavLink>
+          </div>
+        </div>
+      ) : null}
+      <div className="flex min-h-0 w-full flex-1">
         <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)]/40 p-4 lg:flex">
           <div className="mb-8 px-2">
             <FundlyLogo size={56} useRaster className="mb-3" />
@@ -130,7 +152,13 @@ export function Layout() {
           </p>
         </aside>
 
-        <main className="min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+2.75rem)] sm:px-6 lg:px-8 lg:pb-10 lg:pt-8">
+        <main
+          className={`min-w-0 flex-1 px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] sm:px-6 lg:px-8 lg:pb-10 ${
+            travelOn
+              ? 'pt-6 lg:pt-8'
+              : 'pt-[calc(env(safe-area-inset-top)+2.75rem)] lg:pt-8'
+          }`}
+        >
           <div className="mx-auto w-full max-w-6xl">
             <Outlet />
           </div>

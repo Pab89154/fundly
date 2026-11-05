@@ -1,6 +1,7 @@
 import {
   ACCOUNT_LABELS,
   allocateCents,
+  effectiveAllocation,
   normalizeAllocationCents,
   planSpendAcrossPots,
   sumAllocation,
@@ -136,7 +137,7 @@ export function applyDueRecurring(
     const due = addDaysISO(weekMonday, fromMonday)
     if (compareISODate(due, today) <= 0 && !hasAllowanceForWeek(transactions, today)) {
       const cents = settings.weeklyAllowanceCents
-      const allocation = allocateCents(cents, settings.allocation)
+      const allocation = allocateCents(cents, effectiveAllocation(settings))
       const ext = allowanceWeekExternalId(today)
       const tx: Transaction = {
         id: newTxId('allow'),
@@ -273,7 +274,7 @@ export function logWeeklyAllowanceTx(
   }
   const cents = state.settings.weeklyAllowanceCents
   if (cents <= 0) return { ok: false, error: 'Set a weekly allowance amount in Settings first.' }
-  const allocation = allocateCents(cents, state.settings.allocation)
+  const allocation = allocateCents(cents, effectiveAllocation(state.settings))
   const ext = allowanceWeekExternalId(today)
   const tx: Transaction = {
     id: newTxId('allow'),

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PlusCircle } from 'lucide-react'
 import { useMoney } from '../store/MoneyContext'
-import { allocateCents, formatUsd, localDateISO, toCents } from '../lib/money'
+import { allocateCents, effectiveAllocation, formatUsd, localDateISO, toCents } from '../lib/money'
 import { NativeSelect } from '../components/NativeSelect'
 import type { IncomeSource, PrintxPaySource } from '../types'
 
@@ -44,7 +44,8 @@ export function AddIncome() {
   const [ok, setOk] = useState('')
 
   const cents = toCents(Number(amount) || 0)
-  const preview = allocateCents(cents, state.settings.allocation)
+  const splitPct = effectiveAllocation(state.settings)
+  const preview = allocateCents(cents, splitPct)
   const selectedBusiness = state.settings.businesses.find((b) => b.id === source)
   const isPrintxSource =
     source === 'printx' || selectedBusiness?.kind === 'printx' || selectedBusiness?.id === 'printx'
@@ -77,13 +78,13 @@ export function AddIncome() {
           Add Income
         </h2>
         <p className="mt-2 text-[var(--muted)]">
-          Money in splits by your Settings % — example at{' '}
-          {state.settings.allocation.iphone}/{state.settings.allocation.spending}/
-          {state.settings.allocation.extra}/{state.settings.allocation.charity}: $100 → Goal $
-          {((100 * state.settings.allocation.iphone) / 100).toFixed(0)}, Spending $
-          {((100 * state.settings.allocation.spending) / 100).toFixed(0)}, Extra $
-          {((100 * state.settings.allocation.extra) / 100).toFixed(0)}, Charity $
-          {((100 * state.settings.allocation.charity) / 100).toFixed(0)}.
+          Money in splits by your Settings %
+          {state.settings.travelMode ? ' (Travel Mode: Extra → Spending)' : ''} — example at{' '}
+          {splitPct.iphone}/{splitPct.spending}/{splitPct.extra}/{splitPct.charity}: $100 → Goal $
+          {((100 * splitPct.iphone) / 100).toFixed(0)}, Spending $
+          {((100 * splitPct.spending) / 100).toFixed(0)}, Extra $
+          {((100 * splitPct.extra) / 100).toFixed(0)}, Charity $
+          {((100 * splitPct.charity) / 100).toFixed(0)}.
         </p>
       </header>
 

@@ -20,6 +20,7 @@ function emptyState(): AppStateJson {
         createdAt: '1970-01-01T00:00:00.000Z',
       },
       allocation: { iphone: 60, spending: 20, extra: 10, charity: 10 },
+      travelMode: false,
       weeklyAllowanceCents: 1_000,
       expectedPrintxWeeklyCents: 5_000,
       theme: 'dark',

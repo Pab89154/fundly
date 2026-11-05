@@ -151,3 +151,42 @@ export async function saveCloudState(state: AppState): Promise<{ ok: true } | { 
   if (!res.ok) return { ok: false, error: data.error || 'Could not save to cloud' }
   return { ok: true }
 }
+
+export type PrintxSyncResult = {
+  configured: boolean
+  events: import('../types').PrintxFeedEvent[]
+  openOwedUsd?: number
+}
+
+/** Pull PrintX settlements + open owed (requires unlocked session). */
+export async function fetchPrintxSync(): Promise<
+  { ok: true; data: PrintxSyncResult } | { ok: false; error: string; configured?: boolean }
+> {
+  const res = await fetch(apiUrl('/api/printx/sync'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({}),
+  })
+  const data = await parseJson<{
+    error?: string
+    configured?: boolean
+    events?: import('../types').PrintxFeedEvent[]
+    openOwedUsd?: number
+  }>(res)
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: data.error || `Sync failed (${res.status})`,
+      configured: data.configured,
+    }
+  }
+  return {
+    ok: true,
+    data: {
+      configured: data.configured !== false,
+      events: Array.isArray(data.events) ? data.events : [],
+      openOwedUsd: typeof data.openOwedUsd === 'number' ? data.openOwedUsd : undefined,
+    },
+  }
+}

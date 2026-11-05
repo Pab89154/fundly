@@ -3,7 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { FileText, History, Upload, Wallet } from 'lucide-react'
 import { FundlyLogo } from '../components/FundlyLogo'
 import { useMoney } from '../store/MoneyContext'
-import { allocateCents, formatUsd, fromCents, localDateISO, toCents } from '../lib/money'
+import {
+  allocateCents,
+  effectiveAllocation,
+  formatUsd,
+  fromCents,
+  localDateISO,
+  toCents,
+} from '../lib/money'
 import { parseTransactionStatement } from '../lib/statementParse'
 import { readStatementFile, STATEMENT_FILE_ACCEPT } from '../lib/readStatementFile'
 import { NativeSelect } from '../components/NativeSelect'
@@ -66,8 +73,8 @@ export function Onboarding() {
 
   const appleCents = toCents(Number(apple) || 0)
   const preview = useMemo(
-    () => allocateCents(appleCents, state.settings.allocation),
-    [appleCents, state.settings.allocation],
+    () => allocateCents(appleCents, effectiveAllocation(state.settings)),
+    [appleCents, state.settings],
   )
 
   const addRow = () => {

@@ -378,6 +378,11 @@ export interface Settings {
   /** Manual businesses (not PrintX) — create/edit/delete in Settings. */
   businesses: Business[]
   allocation: AllocationPct
+  /**
+   * Travel Mode: Extra merges into Spending for new income.
+   * Enabling moves current Extra → Spending; turning off leaves it in Spending.
+   */
+  travelMode: boolean
   weeklyAllowanceCents: number
   expectedPrintxWeeklyCents: number
   theme: 'dark' | 'light'
@@ -486,6 +491,7 @@ export const DEFAULT_SETTINGS: Settings = {
     createdAt: new Date(0).toISOString(),
   },
   allocation: { iphone: 60, spending: 20, extra: 10, charity: 10 },
+  travelMode: false,
   weeklyAllowanceCents: 1_000,
   expectedPrintxWeeklyCents: 5_000,
   theme: 'dark',

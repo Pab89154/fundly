@@ -107,12 +107,16 @@ export function Spending() {
         </h2>
         <p className="mt-2 text-[var(--muted)]">
           Record a purchase and choose which pot pays. If that pot is short, combine from others.
+          {state.settings.travelMode
+            ? ' Travel Mode is on — Extra is folded into Spending.'
+            : ''}
         </p>
       </header>
 
       <div className="card p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
           Spending money left
+          {state.settings.travelMode ? ' · Travel Mode' : ''}
         </p>
         <p className="mt-2 text-3xl font-extrabold text-[var(--blue)]">
           {formatUsd(balances.spending)}

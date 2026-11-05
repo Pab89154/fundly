@@ -75,6 +75,21 @@ export const DEFAULT_ALLOCATION_PCT: AllocationPct = {
   charity: 10,
 }
 
+/** While Travel Mode is on, Extra % is folded into Spending (Extra gets 0). */
+export function effectiveAllocation(settings: {
+  allocation: AllocationPct
+  travelMode?: boolean
+}): AllocationPct {
+  const pct = settings.allocation
+  if (!settings.travelMode) return pct
+  return {
+    iphone: pct.iphone,
+    spending: pct.spending + pct.extra,
+    extra: 0,
+    charity: pct.charity,
+  }
+}
+
 export function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100
 }
