@@ -49,15 +49,16 @@ export type PendingAction =
 
 const SYSTEM = `You are Fundly Coach — a built-in money helper for one person using Fundly (four pots: Goal/iphone, Spending, Extra, Charity).
 
-You see a JSON snapshot of their current Fundly data. Use it to advise clearly and specifically (dollar amounts, pot names, weeks to goals).
+You see a JSON snapshot of their Fundly data. Answer with specific dollars and pot names.
 
 Rules:
-- Be concise and friendly. Prefer concrete next steps.
+- Keep replies short (a few sentences). Plain text only.
+- Never use markdown: no # headings, no **, ***, __, bullets with -, or backticks.
 - Never invent balances; use the snapshot.
-- You cannot change money yourself. To change anything, call ONE propose_* tool. The app will ask the user to Confirm before applying.
-- For spending across pots, always include exact slices (account + amountUsd) that sum to the total.
+- You cannot change money yourself. To change anything, call ONE propose_* tool. The app asks the user to Confirm first.
+- For spending across pots, include exact slices (account + amountUsd) that sum to the total.
 - Account ids: iphone (Goal), spending, extra, charity.
-- If the user only wants advice, reply with text and do not call tools.`
+- Advice-only questions: reply with text, no tools.`
 
 const TOOLS = [
   {
@@ -250,17 +251,50 @@ type GeminiPart = {
   functionCall?: { name?: string; args?: Record<string, unknown> }
 }
 
-const MODEL_CHAIN = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'] as const
+// Prefer lite for speed; 3.8 as fallback. Skip retired 2.5 models.
+const MODEL_CHAIN = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'] as const
+const MAX_HISTORY = 10
 
 function compactSnapshot(snapshot: unknown): string {
   try {
     const raw = JSON.stringify(snapshot ?? {})
-    // Keep prompts snappy — huge histories make Coach look stuck.
-    if (raw.length <= 12_000) return raw
-    return `${raw.slice(0, 12_000)}…[truncated]`
+    if (raw.length <= 6_000) return raw
+    return `${raw.slice(0, 6_000)}…[truncated]`
   } catch {
     return '{}'
   }
+}
+
+/** Strip markdown so replies stay readable in plain chat bubbles. */
+export function stripCoachMarkdown(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+async function postGemini(
+  apiKey: string,
+  model: string,
+  body: unknown,
+): Promise<Response> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(28_000),
+  })
 }
 
 async function callGeminiOnce(opts: {
@@ -272,31 +306,33 @@ async function callGeminiOnce(opts: {
   | { ok: true; reply: string; pendingAction: PendingAction | null }
   | { ok: false; error: string; status: number; retryable: boolean }
 > {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(opts.model)}:generateContent`
-  const body = {
+  const baseBody = {
     systemInstruction: {
       parts: [{ text: `${SYSTEM}\n\nCurrent Fundly snapshot (JSON):\n${opts.snapshotJson}` }],
     },
     tools: TOOLS,
     contents: opts.contents,
     generationConfig: {
-      // Gemini 3.x: prefer thinkingLevel over temperature; low = faster chat replies.
-      maxOutputTokens: 2048,
-      thinkingConfig: { thinkingLevel: 'low' },
+      maxOutputTokens: 512,
+      thinkingConfig: { thinkingLevel: 'minimal' as const },
     },
   }
 
   let upstream: Response
   try {
-    upstream = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': opts.apiKey,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(55_000),
-    })
+    upstream = await postGemini(opts.apiKey, opts.model, baseBody)
+    // Some models reject thinkingLevel — retry without thinking config.
+    if (upstream.status === 400) {
+      const errBody = (await upstream.clone().json().catch(() => ({}))) as {
+        error?: { message?: string }
+      }
+      if (/thinking/i.test(errBody.error?.message || '')) {
+        upstream = await postGemini(opts.apiKey, opts.model, {
+          ...baseBody,
+          generationConfig: { maxOutputTokens: 512 },
+        })
+      }
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Could not reach Gemini'
     const timedOut = /abort|timeout/i.test(msg)
@@ -318,10 +354,16 @@ async function callGeminiOnce(opts: {
 
   if (!upstream.ok) {
     const status = upstream.status
-    const retryable = status === 429 || status === 503 || status === 500
+    const msg = data.error?.message || `Gemini error (${status})`
+    const retryable =
+      status === 429 ||
+      status === 503 ||
+      status === 500 ||
+      status === 404 ||
+      /no longer available|not found|high demand/i.test(msg)
     return {
       ok: false,
-      error: data.error?.message || `Gemini error (${status})`,
+      error: msg,
       status: status >= 400 && status < 600 ? status : 502,
       retryable,
     }
@@ -340,7 +382,7 @@ async function callGeminiOnce(opts: {
     }
   }
 
-  let reply = textBits.join('\n').trim()
+  let reply = stripCoachMarkdown(textBits.join('\n').trim())
   if (!reply && pendingAction) {
     reply = `I can do this if you confirm:\n${pendingAction.summary}`
   }
@@ -376,6 +418,7 @@ export async function runFundlyAiChat(opts: {
 
   const contents = opts.messages
     .filter((m) => m.content.trim())
+    .slice(-MAX_HISTORY)
     .map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],

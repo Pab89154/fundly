@@ -22,6 +22,7 @@ import {
   listCoachChats,
   listCoachMessages,
   renameCoachChat,
+  reorderCoachChats,
 } from '../src/lib/coachCloud.ts'
 import { runFundlyAiChat, type CoachChatMessage } from '../src/lib/geminiChat.ts'
 
@@ -239,6 +240,28 @@ export async function handleFundlyApi(
     return true
   }
 
+  if (path === '/api/ai/chats/reorder' && method === 'PUT') {
+    if (!hasFullSession(env, cookie, authorization)) {
+      json(res, 401, { error: 'Locked' })
+      return true
+    }
+    let body: Record<string, unknown>
+    try {
+      body = await readJson(req)
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' })
+      return true
+    }
+    const ids = Array.isArray(body.ids) ? body.ids.map((id) => String(id)) : []
+    const result = await reorderCoachChats(env, ids)
+    if (!result.ok) {
+      json(res, result.error === 'Chat not found' ? 404 : 500, { error: result.error })
+      return true
+    }
+    json(res, 200, { ok: true })
+    return true
+  }
+
   const chatMatch = path.match(/^\/api\/ai\/chats\/([^/]+)(?:\/(messages))?$/)
   if (chatMatch) {
     if (!hasFullSession(env, cookie, authorization)) {
@@ -311,7 +334,7 @@ export async function handleFundlyApi(
         json(res, result.error === 'Chat not found' ? 404 : 500, { error: result.error })
         return true
       }
-      json(res, 200, { ok: true })
+      json(res, 200, { ok: true, title: result.title })
       return true
     }
 

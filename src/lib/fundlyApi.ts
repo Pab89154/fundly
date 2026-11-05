@@ -188,7 +188,7 @@ export async function postAiCoachChat(input: {
       credentials: 'include',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(input),
-      signal: AbortSignal.timeout(70_000),
+      signal: AbortSignal.timeout(35_000),
     })
     const data = await parseJson<{
       ok?: boolean
@@ -214,6 +214,7 @@ export async function postAiCoachChat(input: {
 export type CoachChatSummary = {
   id: string
   title: string
+  sortOrder?: number
   createdAt: string
   updatedAt: string
 }
@@ -302,6 +303,35 @@ export async function deleteCoachChat(
   })
   const data = await parseJson<{ error?: string }>(res)
   if (!res.ok) return { ok: false, error: data.error || 'Could not delete chat' }
+  return { ok: true }
+}
+
+export async function renameCoachChatApi(
+  chatId: string,
+  title: string,
+): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
+  const res = await fetch(apiUrl(`/api/ai/chats/${encodeURIComponent(chatId)}`), {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ title }),
+  })
+  const data = await parseJson<{ title?: string; error?: string }>(res)
+  if (!res.ok) return { ok: false, error: data.error || 'Could not rename chat' }
+  return { ok: true, title: String(data.title || title).trim() || 'New chat' }
+}
+
+export async function reorderCoachChatsApi(
+  ids: string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch(apiUrl('/api/ai/chats/reorder'), {
+    method: 'PUT',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ids }),
+  })
+  const data = await parseJson<{ error?: string }>(res)
+  if (!res.ok) return { ok: false, error: data.error || 'Could not reorder chats' }
   return { ok: true }
 }
 

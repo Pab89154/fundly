@@ -14,6 +14,7 @@ import {
   listCoachChats,
   listCoachMessages,
   renameCoachChat,
+  reorderCoachChats,
 } from '../src/lib/coachCloud'
 import type { AppState } from '../src/types'
 
@@ -422,6 +423,15 @@ export default {
       return j({ chat: result.chat })
     }
 
+    if (path === '/api/ai/chats/reorder' && request.method === 'PUT') {
+      if (!unlocked) return j({ error: 'Locked' }, 401)
+      const body = (await request.json().catch(() => ({}))) as { ids?: unknown[] }
+      const ids = Array.isArray(body.ids) ? body.ids.map((id) => String(id)) : []
+      const result = await reorderCoachChats(env, ids)
+      if (!result.ok) return j({ error: result.error }, result.error === 'Chat not found' ? 404 : 500)
+      return j({ ok: true })
+    }
+
     const chatMatch = path.match(/^\/api\/ai\/chats\/([^/]+)(?:\/(messages))?$/)
     if (chatMatch) {
       if (!unlocked) return j({ error: 'Locked' }, 401)
@@ -465,7 +475,7 @@ export default {
         if (typeof body.title !== 'string') return j({ error: 'title required' }, 400)
         const result = await renameCoachChat(env, chatId, body.title)
         if (!result.ok) return j({ error: result.error }, result.error === 'Chat not found' ? 404 : 500)
-        return j({ ok: true })
+        return j({ ok: true, title: result.title })
       }
 
       if (!isMessages && request.method === 'DELETE') {

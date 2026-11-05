@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, MessageSquarePlus, Send, Trash2 } from 'lucide-react'
+import { Bot, ChevronDown, ChevronUp, MessageSquarePlus, Pencil, Send, Trash2 } from 'lucide-react'
 import { CoachCapIcon } from '../components/CoachCapIcon'
 import { useMoney } from '../store/MoneyContext'
 import { buildCoachSnapshot } from '../lib/coachSnapshot'
@@ -11,6 +11,8 @@ import {
   fetchCoachChats,
   fetchCoachMessages,
   postAiCoachChat,
+  renameCoachChatApi,
+  reorderCoachChatsApi,
   type CoachChatSummary,
 } from '../lib/fundlyApi'
 import type { PendingAction } from '../lib/geminiChat'
@@ -59,8 +61,11 @@ export function Coach() {
   const [err, setErr] = useState('')
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [actionMsg, setActionMsg] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const bootRef = useRef(false)
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   const refreshChats = useCallback(async () => {
     const res = await fetchCoachChats()
@@ -147,6 +152,48 @@ export function Coach() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, pending, busy, loadingMessages])
 
+  useEffect(() => {
+    if (renamingId) renameInputRef.current?.focus()
+  }, [renamingId])
+
+  const beginRename = (chat: CoachChatSummary) => {
+    setRenamingId(chat.id)
+    setRenameDraft(chat.title)
+  }
+
+  const commitRename = async () => {
+    if (!renamingId) return
+    const chatId = renamingId
+    const next = renameDraft.trim() || 'New chat'
+    setRenamingId(null)
+    const prev = chats.find((c) => c.id === chatId)?.title
+    if (prev === next) return
+    setChats((list) => list.map((c) => (c.id === chatId ? { ...c, title: next } : c)))
+    const res = await renameCoachChatApi(chatId, next)
+    if (!res.ok) {
+      setErr(res.error)
+      if (prev) setChats((list) => list.map((c) => (c.id === chatId ? { ...c, title: prev } : c)))
+      return
+    }
+    setChats((list) => list.map((c) => (c.id === chatId ? { ...c, title: res.title } : c)))
+  }
+
+  const moveChat = async (chatId: string, dir: -1 | 1) => {
+    const idx = chats.findIndex((c) => c.id === chatId)
+    const nextIdx = idx + dir
+    if (idx < 0 || nextIdx < 0 || nextIdx >= chats.length) return
+    const next = [...chats]
+    const [row] = next.splice(idx, 1)
+    if (!row) return
+    next.splice(nextIdx, 0, row)
+    setChats(next)
+    const res = await reorderCoachChatsApi(next.map((c) => c.id))
+    if (!res.ok) {
+      setErr(res.error)
+      void refreshChats()
+    }
+  }
+
   const send = async (e?: React.FormEvent) => {
     e?.preventDefault()
     const text = input.trim()
@@ -182,13 +229,7 @@ export function Coach() {
         return
       }
       setChats((prev) =>
-        prev
-          .map((c) =>
-            c.id === chatId
-              ? { ...c, title: savedUser.title, updatedAt: new Date().toISOString() }
-              : c,
-          )
-          .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
+        prev.map((c) => (c.id === chatId ? { ...c, title: savedUser.title } : c)),
       )
 
       const snapshot = buildCoachSnapshot(state, balances)
@@ -210,13 +251,7 @@ export function Coach() {
         return
       }
       setChats((prev) =>
-        prev
-          .map((c) =>
-            c.id === chatId
-              ? { ...c, title: savedAsst.title, updatedAt: new Date().toISOString() }
-              : c,
-          )
-          .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
+        prev.map((c) => (c.id === chatId ? { ...c, title: savedAsst.title } : c)),
       )
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : 'Coach failed')
@@ -348,7 +383,7 @@ export function Coach() {
         </div>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="grid gap-3 md:grid-cols-[240px_minmax(0,1fr)]">
         <aside className="card flex max-h-[min(62vh,560px)] flex-col overflow-hidden p-0">
           <div className="border-b border-[var(--border)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
             Chats
@@ -360,23 +395,73 @@ export function Coach() {
               <p className="px-2 py-3 text-sm text-[var(--muted)]">No chats yet. Send a message to start.</p>
             ) : (
               <ul className="space-y-1">
-                {chats.map((c) => (
-                  <li key={c.id} className="group flex items-stretch gap-1">
+                {chats.map((c, idx) => (
+                  <li key={c.id} className="group flex items-stretch gap-0.5">
+                    <div className="flex shrink-0 flex-col justify-center opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                      <button
+                        type="button"
+                        className="rounded p-0.5 text-[var(--muted)] hover:bg-[var(--card-2)] hover:text-[var(--text)] disabled:opacity-30"
+                        aria-label="Move chat up"
+                        disabled={busy || idx === 0}
+                        onClick={() => void moveChat(c.id, -1)}
+                      >
+                        <ChevronUp size={14} aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-0.5 text-[var(--muted)] hover:bg-[var(--card-2)] hover:text-[var(--text)] disabled:opacity-30"
+                        aria-label="Move chat down"
+                        disabled={busy || idx === chats.length - 1}
+                        onClick={() => void moveChat(c.id, 1)}
+                      >
+                        <ChevronDown size={14} aria-hidden />
+                      </button>
+                    </div>
+                    {renamingId === c.id ? (
+                      <input
+                        ref={renameInputRef}
+                        className="field min-w-0 flex-1 px-2 py-1.5 text-sm"
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onBlur={() => void commitRename()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            void commitRename()
+                          }
+                          if (e.key === 'Escape') {
+                            setRenamingId(null)
+                          }
+                        }}
+                        aria-label="Rename chat"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className={`min-w-0 flex-1 rounded-xl px-2.5 py-2 text-left text-sm transition ${
+                          c.id === activeChatId
+                            ? 'bg-[var(--green)]/15 font-semibold text-[var(--green)]'
+                            : 'text-[var(--text)] hover:bg-[var(--card-2)]'
+                        }`}
+                        onClick={() => void openChat(c.id)}
+                        onDoubleClick={() => beginRename(c)}
+                        disabled={busy || loadingMessages}
+                      >
+                        <span className="line-clamp-2">{c.title}</span>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className={`min-w-0 flex-1 rounded-xl px-2.5 py-2 text-left text-sm transition ${
-                        c.id === activeChatId
-                          ? 'bg-[var(--green)]/15 font-semibold text-[var(--green)]'
-                          : 'text-[var(--text)] hover:bg-[var(--card-2)]'
-                      }`}
-                      onClick={() => void openChat(c.id)}
-                      disabled={busy || loadingMessages}
+                      className="shrink-0 rounded-lg px-1.5 text-[var(--muted)] opacity-0 transition hover:bg-[var(--card-2)] hover:text-[var(--text)] group-hover:opacity-100 focus:opacity-100"
+                      aria-label={`Rename ${c.title}`}
+                      onClick={() => beginRename(c)}
+                      disabled={busy || renamingId === c.id}
                     >
-                      <span className="line-clamp-2">{c.title}</span>
+                      <Pencil size={14} aria-hidden />
                     </button>
                     <button
                       type="button"
-                      className="shrink-0 rounded-lg px-2 text-[var(--muted)] opacity-0 transition hover:bg-[var(--card-2)] hover:text-[var(--danger)] group-hover:opacity-100 focus:opacity-100"
+                      className="shrink-0 rounded-lg px-1.5 text-[var(--muted)] opacity-0 transition hover:bg-[var(--card-2)] hover:text-[var(--danger)] group-hover:opacity-100 focus:opacity-100"
                       aria-label={`Delete ${c.title}`}
                       onClick={() => void removeChat(c.id)}
                       disabled={busy}
@@ -407,7 +492,7 @@ export function Coach() {
               messages.map((m, i) => (
                 <div
                   key={`${i}-${m.role}`}
-                  className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  className={`max-w-[92%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     m.role === 'user'
                       ? 'ml-auto bg-[var(--green)]/20 text-[var(--text)]'
                       : 'mr-auto bg-[var(--card-2)] text-[var(--text)]'

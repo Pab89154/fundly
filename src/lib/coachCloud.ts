@@ -10,6 +10,7 @@ export type CoachCloudEnv = {
 export type CoachChatRow = {
   id: string
   title: string
+  sortOrder: number
   createdAt: string
   updatedAt: string
 }
@@ -44,6 +45,22 @@ function titleFromText(text: string): string {
   return clean.length > 48 ? `${clean.slice(0, 45)}…` : clean
 }
 
+function mapChat(r: {
+  id: unknown
+  title?: unknown
+  sort_order?: unknown
+  created_at?: unknown
+  updated_at?: unknown
+}): CoachChatRow {
+  return {
+    id: String(r.id),
+    title: String(r.title || 'New chat'),
+    sortOrder: Number(r.sort_order) || 0,
+    createdAt: String(r.created_at || ''),
+    updatedAt: String(r.updated_at || ''),
+  }
+}
+
 export async function listCoachChats(
   env: CoachCloudEnv,
 ): Promise<{ ok: true; chats: CoachChatRow[] } | { ok: false; error: string }> {
@@ -52,21 +69,14 @@ export async function listCoachChats(
 
   const { data, error } = await sb
     .from('fundly_coach_chats')
-    .select('id, title, created_at, updated_at')
+    .select('id, title, sort_order, created_at, updated_at')
     .eq('owner_email', OWNER_EMAIL)
+    .order('sort_order', { ascending: true })
     .order('updated_at', { ascending: false })
     .limit(100)
 
   if (error) return { ok: false, error: error.message }
-  return {
-    ok: true,
-    chats: (data || []).map((r) => ({
-      id: String(r.id),
-      title: String(r.title || 'New chat'),
-      createdAt: String(r.created_at),
-      updatedAt: String(r.updated_at),
-    })),
-  }
+  return { ok: true, chats: (data || []).map(mapChat) }
 }
 
 export async function createCoachChat(
@@ -76,47 +86,77 @@ export async function createCoachChat(
   const sb = client(env)
   if (!sb) return noSb()
 
+  const { data: top } = await sb
+    .from('fundly_coach_chats')
+    .select('sort_order')
+    .eq('owner_email', OWNER_EMAIL)
+    .order('sort_order', { ascending: true })
+    .limit(1)
+
+  const sortOrder = (top?.[0]?.sort_order != null ? Number(top[0].sort_order) : 0) - 1
   const now = new Date().toISOString()
   const { data, error } = await sb
     .from('fundly_coach_chats')
     .insert({
       owner_email: OWNER_EMAIL,
       title: (title || 'New chat').trim() || 'New chat',
+      sort_order: sortOrder,
       created_at: now,
       updated_at: now,
     })
-    .select('id, title, created_at, updated_at')
+    .select('id, title, sort_order, created_at, updated_at')
     .single()
 
   if (error || !data) return { ok: false, error: error?.message || 'Could not create chat' }
-  return {
-    ok: true,
-    chat: {
-      id: String(data.id),
-      title: String(data.title || 'New chat'),
-      createdAt: String(data.created_at),
-      updatedAt: String(data.updated_at),
-    },
-  }
+  return { ok: true, chat: mapChat(data) }
 }
 
 export async function renameCoachChat(
   env: CoachCloudEnv,
   chatId: string,
   title: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
   const sb = client(env)
   if (!sb) return noSb()
   const next = title.trim() || 'New chat'
   const { data, error } = await sb
     .from('fundly_coach_chats')
-    .update({ title: next, updated_at: new Date().toISOString() })
+    .update({ title: next })
     .eq('id', chatId)
     .eq('owner_email', OWNER_EMAIL)
-    .select('id')
+    .select('id, title')
     .maybeSingle()
   if (error) return { ok: false, error: error.message }
   if (!data) return { ok: false, error: 'Chat not found' }
+  return { ok: true, title: String(data.title || next) }
+}
+
+export async function reorderCoachChats(
+  env: CoachCloudEnv,
+  orderedIds: string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const sb = client(env)
+  if (!sb) return noSb()
+  const ids = orderedIds.map((id) => String(id || '').trim()).filter(Boolean)
+  if (!ids.length) return { ok: false, error: 'No chat ids' }
+
+  const { data: owned, error: ownErr } = await sb
+    .from('fundly_coach_chats')
+    .select('id')
+    .eq('owner_email', OWNER_EMAIL)
+    .in('id', ids)
+  if (ownErr) return { ok: false, error: ownErr.message }
+  const ownedSet = new Set((owned || []).map((r) => String(r.id)))
+  if (ownedSet.size !== ids.length) return { ok: false, error: 'Chat not found' }
+
+  for (let i = 0; i < ids.length; i++) {
+    const { error } = await sb
+      .from('fundly_coach_chats')
+      .update({ sort_order: i })
+      .eq('id', ids[i]!)
+      .eq('owner_email', OWNER_EMAIL)
+    if (error) return { ok: false, error: error.message }
+  }
   return { ok: true }
 }
 

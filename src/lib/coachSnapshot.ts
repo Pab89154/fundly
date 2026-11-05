@@ -13,7 +13,7 @@ export function buildCoachSnapshot(state: AppState, balances: Balances) {
   const alloc = effectiveAllocation(s)
   const recent = [...state.transactions]
     .sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`))
-    .slice(0, 25)
+    .slice(0, 12)
     .map((t) => ({
       type: t.type,
       amountUsd: fromCents(Math.abs(t.amountCents)),
