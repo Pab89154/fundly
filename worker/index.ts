@@ -490,18 +490,21 @@ export default {
       const body = (await request.json().catch(() => ({}))) as {
         messages?: CoachChatMessage[]
         snapshot?: unknown
+        needsTitle?: boolean
       }
       const messages = Array.isArray(body.messages) ? body.messages : []
       const result = await runFundlyAiChat({
         apiKey: env.GEMINI_API_KEY || '',
         messages,
         snapshot: body.snapshot ?? {},
+        needsTitle: Boolean(body.needsTitle),
       })
       if (!result.ok) return j({ error: result.error }, result.status || 502)
       return j({
         ok: true,
         reply: result.reply,
         pendingAction: result.pendingAction,
+        chatTitle: result.chatTitle,
         configured: true,
       })
     }

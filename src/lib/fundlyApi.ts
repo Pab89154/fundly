@@ -174,11 +174,13 @@ export async function fetchAiCoachStatus(): Promise<
 export async function postAiCoachChat(input: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
   snapshot: unknown
+  needsTitle?: boolean
 }): Promise<
   | {
       ok: true
       reply: string
       pendingAction: import('./geminiChat').PendingAction | null
+      chatTitle: string | null
     }
   | { ok: false; error: string }
 > {
@@ -194,6 +196,7 @@ export async function postAiCoachChat(input: {
       ok?: boolean
       reply?: string
       pendingAction?: import('./geminiChat').PendingAction | null
+      chatTitle?: string | null
       error?: string
     }>(res)
     if (!res.ok) return { ok: false, error: data.error || `Coach failed (${res.status})` }
@@ -201,6 +204,7 @@ export async function postAiCoachChat(input: {
       ok: true,
       reply: String(data.reply || ''),
       pendingAction: data.pendingAction ?? null,
+      chatTitle: data.chatTitle ? String(data.chatTitle) : null,
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Coach failed'

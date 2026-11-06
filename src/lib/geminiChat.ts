@@ -60,9 +60,20 @@ Rules:
 - Account ids: iphone (Goal), spending, extra, charity.
 - Advice-only questions: reply with text, no tools.`
 
-const TOOLS = [
-  {
-    functionDeclarations: [
+const TITLE_TOOL = {
+  name: 'set_chat_title',
+  description:
+    'Name this chat with a short plain title (3–6 words). Call once on a new chat along with your reply.',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      title: { type: 'STRING', description: 'Short chat title, no quotes or markdown' },
+    },
+    required: ['title'],
+  },
+}
+
+const ACTION_TOOLS = [
       {
         name: 'propose_spend',
         description:
@@ -145,9 +156,24 @@ const TOOLS = [
           required: ['subscriptionId', 'enabled'],
         },
       },
-    ],
-  },
 ]
+
+function buildTools(needsTitle: boolean) {
+  return [
+    {
+      functionDeclarations: needsTitle ? [TITLE_TOOL, ...ACTION_TOOLS] : ACTION_TOOLS,
+    },
+  ]
+}
+
+function cleanChatTitle(raw: string): string {
+  const clean = stripCoachMarkdown(raw)
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!clean) return ''
+  return clean.length > 48 ? `${clean.slice(0, 45)}…` : clean
+}
 
 function potLabel(id: string): string {
   if (id === 'iphone') return 'Goal'
@@ -302,15 +328,23 @@ async function callGeminiOnce(opts: {
   model: string
   contents: Array<{ role: string; parts: Array<{ text: string }> }>
   snapshotJson: string
+  needsTitle: boolean
 }): Promise<
-  | { ok: true; reply: string; pendingAction: PendingAction | null }
+  | { ok: true; reply: string; pendingAction: PendingAction | null; chatTitle: string | null }
   | { ok: false; error: string; status: number; retryable: boolean }
 > {
+  const titleHint = opts.needsTitle
+    ? '\n- This is a new chat: also call set_chat_title with a short 3–6 word title (plain text).'
+    : ''
   const baseBody = {
     systemInstruction: {
-      parts: [{ text: `${SYSTEM}\n\nCurrent Fundly snapshot (JSON):\n${opts.snapshotJson}` }],
+      parts: [
+        {
+          text: `${SYSTEM}${titleHint}\n\nCurrent Fundly snapshot (JSON):\n${opts.snapshotJson}`,
+        },
+      ],
     },
-    tools: TOOLS,
+    tools: buildTools(opts.needsTitle),
     contents: opts.contents,
     generationConfig: {
       maxOutputTokens: 512,
@@ -372,14 +406,19 @@ async function callGeminiOnce(opts: {
   const parts = data.candidates?.[0]?.content?.parts || []
   const textBits: string[] = []
   let pendingAction: PendingAction | null = null
+  let chatTitle: string | null = null
 
   for (const p of parts) {
     // Skip thought-only parts; keep visible text + tool calls.
     if (p.text && !p.thought) textBits.push(p.text)
-    if (p.functionCall?.name && !pendingAction) {
-      const args = (p.functionCall.args || {}) as Record<string, unknown>
-      pendingAction = pendingFromToolCall(p.functionCall.name, args)
+    if (!p.functionCall?.name) continue
+    const args = (p.functionCall.args || {}) as Record<string, unknown>
+    if (p.functionCall.name === 'set_chat_title') {
+      const t = cleanChatTitle(String(args.title || ''))
+      if (t) chatTitle = t
+      continue
     }
+    if (!pendingAction) pendingAction = pendingFromToolCall(p.functionCall.name, args)
   }
 
   let reply = stripCoachMarkdown(textBits.join('\n').trim())
@@ -395,7 +434,7 @@ async function callGeminiOnce(opts: {
     }
   }
 
-  return { ok: true, reply, pendingAction }
+  return { ok: true, reply, pendingAction, chatTitle }
 }
 
 export async function runFundlyAiChat(opts: {
@@ -403,8 +442,9 @@ export async function runFundlyAiChat(opts: {
   messages: CoachChatMessage[]
   snapshot: unknown
   model?: string
+  needsTitle?: boolean
 }): Promise<
-  | { ok: true; reply: string; pendingAction: PendingAction | null }
+  | { ok: true; reply: string; pendingAction: PendingAction | null; chatTitle: string | null }
   | { ok: false; error: string; status?: number }
 > {
   const key = opts.apiKey.trim()
@@ -436,12 +476,15 @@ export async function runFundlyAiChat(opts: {
   let lastError = 'Coach failed'
   let lastStatus = 502
 
+  const needsTitle = Boolean(opts.needsTitle)
+
   for (const model of models) {
     const result = await callGeminiOnce({
       apiKey: key,
       model,
       contents,
       snapshotJson,
+      needsTitle,
     })
     if (result.ok) return result
     lastError = result.error

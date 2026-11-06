@@ -39,12 +39,6 @@ function noSb(): { ok: false; error: string } {
   return { ok: false, error: 'Supabase is not configured (SUPABASE_URL / SERVICE_ROLE_KEY).' }
 }
 
-function titleFromText(text: string): string {
-  const clean = text.replace(/\s+/g, ' ').trim()
-  if (!clean) return 'New chat'
-  return clean.length > 48 ? `${clean.slice(0, 45)}…` : clean
-}
-
 function mapChat(r: {
   id: unknown
   title?: unknown
@@ -260,15 +254,11 @@ export async function appendCoachMessages(
   const { error: insErr } = await sb.from('fundly_coach_messages').insert(rows)
   if (insErr) return { ok: false, error: insErr.message }
 
-  let title = String(chat.title || 'New chat')
-  const firstUser = messages.find((m) => m.role === 'user' && m.content.trim())
-  if (firstUser && (!title || title === 'New chat')) {
-    title = titleFromText(firstUser.content)
-  }
-
+  // Title stays until Coach names the chat (or the user renames it).
+  const title = String(chat.title || 'New chat')
   const { error: upErr } = await sb
     .from('fundly_coach_chats')
-    .update({ title, updated_at: new Date().toISOString() })
+    .update({ updated_at: new Date().toISOString() })
     .eq('id', chatId)
     .eq('owner_email', OWNER_EMAIL)
   if (upErr) return { ok: false, error: upErr.message }

@@ -228,12 +228,11 @@ export function Coach() {
         setMessages(messages)
         return
       }
-      setChats((prev) =>
-        prev.map((c) => (c.id === chatId ? { ...c, title: savedUser.title } : c)),
-      )
 
+      const currentTitle = chats.find((c) => c.id === chatId)?.title || savedUser.title
+      const needsTitle = !currentTitle || currentTitle === 'New chat'
       const snapshot = buildCoachSnapshot(state, balances)
-      const res = await postAiCoachChat({ messages: nextMsgs, snapshot })
+      const res = await postAiCoachChat({ messages: nextMsgs, snapshot, needsTitle })
       if (!res.ok) {
         setErr(res.error)
         return
@@ -243,6 +242,18 @@ export function Coach() {
       setMessages(withReply)
       setPending(res.pendingAction)
 
+      if (needsTitle && res.chatTitle) {
+        setChats((prev) =>
+          prev.map((c) => (c.id === chatId ? { ...c, title: res.chatTitle! } : c)),
+        )
+        const renamed = await renameCoachChatApi(chatId, res.chatTitle)
+        if (renamed.ok) {
+          setChats((prev) =>
+            prev.map((c) => (c.id === chatId ? { ...c, title: renamed.title } : c)),
+          )
+        }
+      }
+
       const savedAsst = await appendCoachMessages(chatId, [
         { role: 'assistant', content: res.reply, pendingAction: res.pendingAction },
       ])
@@ -250,9 +261,6 @@ export function Coach() {
         setErr(savedAsst.error)
         return
       }
-      setChats((prev) =>
-        prev.map((c) => (c.id === chatId ? { ...c, title: savedAsst.title } : c)),
-      )
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : 'Coach failed')
     } finally {
@@ -566,6 +574,9 @@ export function Coach() {
               <Send size={18} aria-hidden />
             </button>
           </form>
+          <p className="border-t border-[var(--border)] px-3 py-2 text-center text-[11px] leading-snug text-[var(--muted)]">
+            (AI can make mistakes. Always double check if it is true.)
+          </p>
         </div>
       </div>
 

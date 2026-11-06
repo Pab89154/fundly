@@ -366,6 +366,7 @@ export async function handleFundlyApi(
       apiKey: env.GEMINI_API_KEY || '',
       messages,
       snapshot: body.snapshot ?? {},
+      needsTitle: Boolean(body.needsTitle),
     })
     if (!result.ok) {
       json(res, result.status || 502, { error: result.error })
@@ -375,6 +376,7 @@ export async function handleFundlyApi(
       ok: true,
       reply: result.reply,
       pendingAction: result.pendingAction,
+      chatTitle: result.chatTitle,
       configured: true,
     })
     return true
