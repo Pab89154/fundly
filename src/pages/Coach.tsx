@@ -405,7 +405,7 @@ export function Coach() {
               <ul className="space-y-1">
                 {chats.map((c, idx) => (
                   <li key={c.id} className="group flex items-stretch gap-0.5">
-                    <div className="flex shrink-0 flex-col justify-center opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="flex shrink-0 flex-col justify-center">
                       <button
                         type="button"
                         className="rounded p-0.5 text-[var(--muted)] hover:bg-[var(--card-2)] hover:text-[var(--text)] disabled:opacity-30"
@@ -460,7 +460,7 @@ export function Coach() {
                     )}
                     <button
                       type="button"
-                      className="shrink-0 rounded-lg px-1.5 text-[var(--muted)] opacity-0 transition hover:bg-[var(--card-2)] hover:text-[var(--text)] group-hover:opacity-100 focus:opacity-100"
+                      className="shrink-0 rounded-lg px-1.5 text-[var(--muted)] transition hover:bg-[var(--card-2)] hover:text-[var(--text)]"
                       aria-label={`Rename ${c.title}`}
                       onClick={() => beginRename(c)}
                       disabled={busy || renamingId === c.id}
@@ -469,7 +469,7 @@ export function Coach() {
                     </button>
                     <button
                       type="button"
-                      className="shrink-0 rounded-lg px-1.5 text-[var(--muted)] opacity-0 transition hover:bg-[var(--card-2)] hover:text-[var(--danger)] group-hover:opacity-100 focus:opacity-100"
+                      className="shrink-0 rounded-lg px-1.5 text-[var(--muted)] transition hover:bg-[var(--card-2)] hover:text-[var(--danger)]"
                       aria-label={`Delete ${c.title}`}
                       onClick={() => void removeChat(c.id)}
                       disabled={busy}
