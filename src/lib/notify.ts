@@ -102,7 +102,6 @@ export function maybeNotify(
           body,
           tag,
           data,
-          renotify: Boolean(tag),
         }),
       )
       .catch(() => {
