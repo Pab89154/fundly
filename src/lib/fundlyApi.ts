@@ -190,7 +190,7 @@ export async function postAiCoachChat(input: {
       credentials: 'include',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(input),
-      signal: AbortSignal.timeout(35_000),
+      signal: AbortSignal.timeout(18_000),
     })
     const data = await parseJson<{
       ok?: boolean
@@ -209,7 +209,7 @@ export async function postAiCoachChat(input: {
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Coach failed'
     if (/abort|timeout/i.test(msg)) {
-      return { ok: false, error: 'Coach timed out. Try again with a shorter question.' }
+      return { ok: false, error: 'Coach is busy right now. Wait a few seconds and try again.' }
     }
     return { ok: false, error: msg }
   }

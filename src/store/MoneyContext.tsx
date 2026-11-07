@@ -605,6 +605,40 @@ export function MoneyProvider({
   }, [cloudHydrated, state.settings.timezone])
 
   const balances = useMemo(() => computeBalances(state.transactions), [state.transactions])
+  const appleMismatchKey = useRef('')
+  useEffect(() => {
+    if (!cloudHydrated) return
+    const reminders = state.settings.reminders
+    if (!reminders.webPushEnabled || reminders.notifyAppleMismatch === false) return
+    const apple = state.settings.appleCashConfirmedCents
+    if (apple == null) {
+      appleMismatchKey.current = ''
+      return
+    }
+    const virtual = balances.combined
+    if (virtual === apple) {
+      appleMismatchKey.current = ''
+      return
+    }
+    const key = `${virtual}:${apple}`
+    if (appleMismatchKey.current === key) return
+    appleMismatchKey.current = key
+    const diff = virtual - apple
+    const abs = formatUsd(Math.abs(diff))
+    maybeNotify(
+      'Apple Cash doesn’t match',
+      diff > 0
+        ? `Fundly pots ${formatUsd(virtual)} · Apple Cash ${formatUsd(apple)} · Fundly is ${abs} higher.`
+        : `Fundly pots ${formatUsd(virtual)} · Apple Cash ${formatUsd(apple)} · Apple Cash is ${abs} higher.`,
+      { tag: 'apple-cash-mismatch', url: '/apple-cash' },
+    )
+  }, [
+    cloudHydrated,
+    balances.combined,
+    state.settings.appleCashConfirmedCents,
+    state.settings.reminders.webPushEnabled,
+    state.settings.reminders.notifyAppleMismatch,
+  ])
   const needsTimezonePrompt =
     state.settings.timezoneSource === 'unset' || !isValidTimeZone(state.settings.timezone)
   /** Open on PrintX Money — Sync updates this; Mark settled on PrintX lowers it. */

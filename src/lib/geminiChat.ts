@@ -277,9 +277,11 @@ type GeminiPart = {
   functionCall?: { name?: string; args?: Record<string, unknown> }
 }
 
-// Prefer lite for speed; 3.8 as fallback. Skip retired 2.5 models.
-const MODEL_CHAIN = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'] as const
-const MAX_HISTORY = 10
+// 3.8 Flash hangs under load (5 RPM) and is what surfaces "timed out".
+// Stay on lites (15 RPM / 500 RPD) and race them.
+const LITE_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'] as const
+const MAX_HISTORY = 8
+const PER_MODEL_MS = 8_000
 
 function compactSnapshot(snapshot: unknown): string {
   try {
@@ -319,7 +321,7 @@ async function postGemini(
       'x-goog-api-key': apiKey,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(28_000),
+    signal: AbortSignal.timeout(PER_MODEL_MS),
   })
 }
 
@@ -346,33 +348,19 @@ async function callGeminiOnce(opts: {
     },
     tools: buildTools(opts.needsTitle),
     contents: opts.contents,
-    generationConfig: {
-      maxOutputTokens: 512,
-      thinkingConfig: { thinkingLevel: 'minimal' as const },
-    },
+    // No thinkingConfig — extra thinking burns the tiny 3.8 quota and times out.
+    generationConfig: { maxOutputTokens: 512 },
   }
 
   let upstream: Response
   try {
     upstream = await postGemini(opts.apiKey, opts.model, baseBody)
-    // Some models reject thinkingLevel — retry without thinking config.
-    if (upstream.status === 400) {
-      const errBody = (await upstream.clone().json().catch(() => ({}))) as {
-        error?: { message?: string }
-      }
-      if (/thinking/i.test(errBody.error?.message || '')) {
-        upstream = await postGemini(opts.apiKey, opts.model, {
-          ...baseBody,
-          generationConfig: { maxOutputTokens: 512 },
-        })
-      }
-    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Could not reach Gemini'
     const timedOut = /abort|timeout/i.test(msg)
     return {
       ok: false,
-      error: timedOut ? 'Coach timed out — try a shorter question.' : msg,
+      error: timedOut ? `${opts.model} timed out` : msg,
       status: 504,
       retryable: true,
     }
@@ -394,7 +382,9 @@ async function callGeminiOnce(opts: {
       status === 503 ||
       status === 500 ||
       status === 404 ||
-      /no longer available|not found|high demand/i.test(msg)
+      /no longer available|not found|high demand|resource exhausted|unavailable|overloaded/i.test(
+        msg,
+      )
     return {
       ok: false,
       error: msg,
@@ -469,28 +459,66 @@ export async function runFundlyAiChat(opts: {
   }
 
   const snapshotJson = compactSnapshot(opts.snapshot)
-  const models = opts.model
-    ? [opts.model, ...MODEL_CHAIN.filter((m) => m !== opts.model)]
-    : [...MODEL_CHAIN]
-
-  let lastError = 'Coach failed'
-  let lastStatus = 502
-
   const needsTitle = Boolean(opts.needsTitle)
+  const models = opts.model
+    ? [opts.model, ...LITE_MODELS.filter((m) => m !== opts.model)]
+    : [...LITE_MODELS]
 
-  for (const model of models) {
-    const result = await callGeminiOnce({
-      apiKey: key,
-      model,
-      contents,
-      snapshotJson,
-      needsTitle,
-    })
-    if (result.ok) return result
-    lastError = result.error
-    lastStatus = result.status
-    if (!result.retryable) break
+  const shared = { apiKey: key, contents, snapshotJson, needsTitle }
+
+  type ChatResult = Awaited<ReturnType<typeof callGeminiOnce>>
+
+  // First lite that answers wins — a hung model must not block the other.
+  const winner = await new Promise<ChatResult>((resolve) => {
+    let pending = models.length
+    let lastFail: ChatResult | null = null
+    if (pending === 0) {
+      resolve({
+        ok: false,
+        error: 'Coach is busy right now. Wait a few seconds and try again.',
+        status: 503,
+        retryable: true,
+      })
+      return
+    }
+    for (const model of models) {
+      void callGeminiOnce({ ...shared, model }).then(
+        (result) => {
+          if (result.ok) {
+            resolve(result)
+            return
+          }
+          lastFail = result
+          pending -= 1
+          if (pending === 0) {
+            resolve(
+              lastFail || {
+                ok: false,
+                error: 'Coach is busy right now. Wait a few seconds and try again.',
+                status: 503,
+                retryable: true,
+              },
+            )
+          }
+        },
+        (e: unknown) => {
+          lastFail = {
+            ok: false,
+            error: e instanceof Error ? e.message : 'Coach failed',
+            status: 502,
+            retryable: true,
+          }
+          pending -= 1
+          if (pending === 0 && lastFail) resolve(lastFail)
+        },
+      )
+    }
+  })
+
+  if (winner.ok) return winner
+  return {
+    ok: false,
+    error: 'Coach is busy right now. Wait a few seconds and try again.',
+    status: winner.status || 503,
   }
-
-  return { ok: false, error: lastError, status: lastStatus }
 }
