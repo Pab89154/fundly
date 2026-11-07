@@ -78,6 +78,12 @@ export async function enableNotifications(): Promise<NotifySetupState> {
   return getNotifySetupState()
 }
 
+function withBasePath(path: string): string {
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+  if (!path.startsWith('/')) return `${base}/${path}`
+  return `${base}${path}`
+}
+
 export function maybeNotify(
   title: string,
   body: string,
@@ -85,18 +91,40 @@ export function maybeNotify(
 ): boolean {
   if (typeof window === 'undefined' || !('Notification' in window)) return false
   if (Notification.permission !== 'granted') return false
+  const data = opts?.url ? { url: withBasePath(opts.url) } : undefined
+  const tag = opts?.tag
+
+  // Prefer the service worker so alerts still show when the tab is backgrounded.
+  if ('serviceWorker' in navigator) {
+    void navigator.serviceWorker.ready
+      .then((reg) =>
+        reg.showNotification(title, {
+          body,
+          tag,
+          data,
+          renotify: Boolean(tag),
+        }),
+      )
+      .catch(() => {
+        try {
+          const n = new Notification(title, { body, tag, data })
+          n.onclick = () => {
+            window.focus()
+            if (data?.url) window.location.href = data.url
+            n.close()
+          }
+        } catch {
+          /* ignore */
+        }
+      })
+    return true
+  }
+
   try {
-    const n = new Notification(title, {
-      body,
-      tag: opts?.tag,
-      data: opts?.url ? { url: opts.url } : undefined,
-    })
+    const n = new Notification(title, { body, tag, data })
     n.onclick = () => {
       window.focus()
-      if (opts?.url) {
-        const base = import.meta.env.BASE_URL.replace(/\/$/, '') || ''
-        window.location.href = `${base}${opts.url}`
-      }
+      if (data?.url) window.location.href = data.url
       n.close()
     }
     return true

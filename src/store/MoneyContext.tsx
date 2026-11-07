@@ -609,34 +609,62 @@ export function MoneyProvider({
   useEffect(() => {
     if (!cloudHydrated) return
     const reminders = state.settings.reminders
-    if (!reminders.webPushEnabled || reminders.notifyAppleMismatch === false) return
-    const apple = state.settings.appleCashConfirmedCents
-    if (apple == null) {
-      appleMismatchKey.current = ''
-      return
+    if (reminders.notifyAppleMismatch === false) return
+
+    const notifyMismatch = () => {
+      const apple = state.settings.appleCashConfirmedCents
+      if (apple == null) {
+        appleMismatchKey.current = ''
+        return
+      }
+      const virtual = balances.combined
+      if (virtual === apple) {
+        appleMismatchKey.current = ''
+        try {
+          sessionStorage.removeItem('fundly:apple-mismatch-key')
+        } catch {
+          /* private mode */
+        }
+        return
+      }
+      const key = `${virtual}:${apple}`
+      let seen = ''
+      try {
+        seen = sessionStorage.getItem('fundly:apple-mismatch-key') || ''
+      } catch {
+        seen = appleMismatchKey.current
+      }
+      if (appleMismatchKey.current === key || seen === key) {
+        appleMismatchKey.current = key
+        return
+      }
+      appleMismatchKey.current = key
+      try {
+        sessionStorage.setItem('fundly:apple-mismatch-key', key)
+      } catch {
+        /* private mode */
+      }
+      const diff = virtual - apple
+      const abs = formatUsd(Math.abs(diff))
+      maybeNotify(
+        'Apple Cash doesn’t match',
+        diff > 0
+          ? `Online (Fundly) ${formatUsd(virtual)} · Apple Cash ${formatUsd(apple)} · online is ${abs} higher.`
+          : `Online (Fundly) ${formatUsd(virtual)} · Apple Cash ${formatUsd(apple)} · Apple Cash is ${abs} higher.`,
+        { tag: 'apple-cash-mismatch', url: '/apple-cash' },
+      )
     }
-    const virtual = balances.combined
-    if (virtual === apple) {
-      appleMismatchKey.current = ''
-      return
+
+    notifyMismatch()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') notifyMismatch()
     }
-    const key = `${virtual}:${apple}`
-    if (appleMismatchKey.current === key) return
-    appleMismatchKey.current = key
-    const diff = virtual - apple
-    const abs = formatUsd(Math.abs(diff))
-    maybeNotify(
-      'Apple Cash doesn’t match',
-      diff > 0
-        ? `Fundly pots ${formatUsd(virtual)} · Apple Cash ${formatUsd(apple)} · Fundly is ${abs} higher.`
-        : `Fundly pots ${formatUsd(virtual)} · Apple Cash ${formatUsd(apple)} · Apple Cash is ${abs} higher.`,
-      { tag: 'apple-cash-mismatch', url: '/apple-cash' },
-    )
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [
     cloudHydrated,
     balances.combined,
     state.settings.appleCashConfirmedCents,
-    state.settings.reminders.webPushEnabled,
     state.settings.reminders.notifyAppleMismatch,
   ])
   const needsTimezonePrompt =
