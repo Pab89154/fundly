@@ -19,7 +19,7 @@ function emptyState(): AppStateJson {
         note: '',
         createdAt: '1970-01-01T00:00:00.000Z',
       },
-      allocation: { iphone: 60, spending: 20, extra: 10, charity: 10 },
+      allocation: { iphone: 60, spending: 25, extra: 10, charity: 5 },
       travelMode: false,
       weeklyAllowanceCents: 1_000,
       expectedPrintxWeeklyCents: 5_000,
@@ -98,7 +98,8 @@ function normalizeAllocation(raw: unknown): {
   extra: number
   charity: number
 } {
-  const def = { iphone: 60, spending: 20, extra: 10, charity: 10 }
+  const def = { iphone: 60, spending: 25, extra: 10, charity: 5 }
+  const legacy = { iphone: 60, spending: 20, extra: 10, charity: 10 }
   if (!raw || typeof raw !== 'object') return def
   const o = raw as Record<string, unknown>
   const hasCharity = 'charity' in o && o.charity != null
@@ -121,6 +122,14 @@ function normalizeAllocation(raw: unknown): {
   }
   const sum = next.iphone + next.spending + next.extra + next.charity
   if (Math.abs(sum - 100) > 0.001) return def
+  if (
+    next.iphone === legacy.iphone &&
+    next.spending === legacy.spending &&
+    next.extra === legacy.extra &&
+    next.charity === legacy.charity
+  ) {
+    return def
+  }
   return next
 }
 

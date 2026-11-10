@@ -12,7 +12,7 @@ function baseState(): AppState {
   s.settings.timezone = 'America/Chicago'
   s.settings.timezoneSource = 'auto'
   s.settings.weeklyAllowanceCents = toCents(10)
-  s.settings.allocation = { iphone: 60, spending: 20, extra: 10, charity: 10 }
+  s.settings.allocation = { iphone: 60, spending: 25, extra: 10, charity: 5 }
   s.settings.allowanceAuto = { enabled: true, weekday: 1 } // Monday
   s.settings.reminders = {
     ...s.settings.reminders,
@@ -51,7 +51,7 @@ function baseState(): AppState {
   const split = allocateCents(toCents(10), state.settings.allocation)
   const tx = next.transactions.find((t) => t.externalId === last.externalId)
   assert(tx?.allocation?.iphone === split.iphone, '60% goal')
-  assert(tx?.allocation?.spending === split.spending, '20% spending')
+  assert(tx?.allocation?.spending === split.spending, '25% spending')
   // Sunday still in Mon–Sun week that already has legacy day-keyed allowance
   const sundayState = baseState()
   sundayState.transactions.push({

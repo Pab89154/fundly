@@ -490,7 +490,7 @@ export const DEFAULT_SETTINGS: Settings = {
     note: '',
     createdAt: new Date(0).toISOString(),
   },
-  allocation: { iphone: 60, spending: 20, extra: 10, charity: 10 },
+  allocation: { iphone: 60, spending: 25, extra: 10, charity: 5 },
   travelMode: false,
   weeklyAllowanceCents: 1_000,
   expectedPrintxWeeklyCents: 5_000,

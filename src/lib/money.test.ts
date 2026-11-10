@@ -61,25 +61,25 @@ function balancesOf(transactions: Transaction[]) {
   return { iphone, spending, extra, charity, combined: iphone + spending + extra + charity }
 }
 
-const SPLIT = { iphone: 60, spending: 20, extra: 10, charity: 10 }
+const SPLIT = { iphone: 60, spending: 25, extra: 10, charity: 5 }
 
-// $100 → 60/20/10/10 exactly
+// $100 → 60/25/10/5 exactly
 {
   const a = allocateCents(toCents(100), SPLIT)
   assert(a.iphone === 6000, `$100 goal ${a.iphone}`)
-  assert(a.spending === 2000, `$100 spending ${a.spending}`)
+  assert(a.spending === 2500, `$100 spending ${a.spending}`)
   assert(a.extra === 1000, `$100 extra ${a.extra}`)
-  assert(a.charity === 1000, `$100 charity ${a.charity}`)
+  assert(a.charity === 500, `$100 charity ${a.charity}`)
   assert(a.iphone + a.spending + a.extra + a.charity === 10_000, '$100 sum')
 }
 
-// $50 → 60/20/10/10
+// $50 → 60/25/10/5
 {
   const a = allocateCents(toCents(50), SPLIT)
   assert(a.iphone === 3000, `iphone ${a.iphone}`)
-  assert(a.spending === 1000, `spending ${a.spending}`)
+  assert(a.spending === 1250, `spending ${a.spending}`)
   assert(a.extra === 500, `extra ${a.extra}`)
-  assert(a.charity === 500, `charity ${a.charity}`)
+  assert(a.charity === 250, `charity ${a.charity}`)
 }
 
 // remainder cents sum exactly
@@ -94,14 +94,14 @@ assert(!isValidAllocationPct({ iphone: 60, spending: 20, extra: 10, charity: 11 
 // Travel Mode folds Extra % into Spending
 {
   const off = effectiveAllocation({ allocation: SPLIT, travelMode: false })
-  assert(off.extra === 10 && off.spending === 20, 'travel off keeps Extra')
+  assert(off.extra === 10 && off.spending === 25, 'travel off keeps Extra')
   const on = effectiveAllocation({ allocation: SPLIT, travelMode: true })
   assert(on.extra === 0, 'travel on Extra 0')
-  assert(on.spending === 30, 'travel on Spending gets Extra share')
-  assert(on.iphone === 60 && on.charity === 10, 'travel keeps Goal/Charity')
+  assert(on.spending === 35, 'travel on Spending gets Extra share')
+  assert(on.iphone === 60 && on.charity === 5, 'travel keeps Goal/Charity')
   const a = allocateCents(toCents(100), on)
   assert(a.extra === 0, 'travel allocate Extra 0')
-  assert(a.spending === 3000, 'travel allocate Spending 30%')
+  assert(a.spending === 3500, 'travel allocate Spending 35%')
 }
 
 // Exact multi-pot slices

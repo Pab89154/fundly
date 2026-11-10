@@ -126,9 +126,26 @@ export const ZERO_ALLOCATION: AllocationCents = {
 
 export const DEFAULT_ALLOCATION_PCT: AllocationPct = {
   iphone: 60,
+  spending: 25,
+  extra: 10,
+  charity: 5,
+}
+
+/** Previous shipped default — rewrite to current on load. */
+const LEGACY_DEFAULT_ALLOCATION_PCT: AllocationPct = {
+  iphone: 60,
   spending: 20,
   extra: 10,
   charity: 10,
+}
+
+function isSameAllocationPct(a: AllocationPct, b: AllocationPct): boolean {
+  return (
+    a.iphone === b.iphone &&
+    a.spending === b.spending &&
+    a.extra === b.extra &&
+    a.charity === b.charity
+  )
 }
 
 /** While Travel Mode is on, Extra % is folded into Spending (Extra gets 0). */
@@ -225,7 +242,7 @@ export function isValidAllocationPct(pct: AllocationPct): boolean {
   )
 }
 
-/** Ensure charity exists; migrate legacy 3-pot splits → 60/20/10/10. */
+/** Ensure charity exists; migrate legacy 3-pot / 60/20/10/10 → 60/25/10/5. */
 export function normalizeAllocationPct(raw: Partial<AllocationPct> | null | undefined): AllocationPct {
   const hasCharity = raw != null && 'charity' in raw && raw.charity != null
   // Any pre-charity allocation becomes the new default split
@@ -245,6 +262,9 @@ export function normalizeAllocationPct(raw: Partial<AllocationPct> | null | unde
     !Number.isFinite(next.charity) ||
     !isValidAllocationPct(next)
   ) {
+    return { ...DEFAULT_ALLOCATION_PCT }
+  }
+  if (isSameAllocationPct(next, LEGACY_DEFAULT_ALLOCATION_PCT)) {
     return { ...DEFAULT_ALLOCATION_PCT }
   }
   return next

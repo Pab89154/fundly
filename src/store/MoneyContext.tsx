@@ -164,7 +164,7 @@ type TransferInput = {
 }
 
 type OnboardingInput = {
-  /** Current Apple Cash / wallet total — split automatically 60/20/10/10 (or settings %). */
+  /** Current Apple Cash / wallet total — split automatically 60/25/10/5 (or settings %). */
   appleCashUsd: number
   pastTransactions?: Array<{
     type: 'income' | 'spending' | 'transfer'
