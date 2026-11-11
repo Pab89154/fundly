@@ -415,6 +415,15 @@ async function callGeminiOnce(opts: {
   if (!reply && pendingAction) {
     reply = `I can do this if you confirm:\n${pendingAction.summary}`
   }
+  // New chats ask for set_chat_title; lite models often return ONLY that tool
+  // call and no text — which made every first message look like "Coach is busy".
+  if (!reply && opts.needsTitle) {
+    const again = await callGeminiOnce({ ...opts, needsTitle: false })
+    if (again.ok) {
+      return { ...again, chatTitle: again.chatTitle || chatTitle }
+    }
+    return again
+  }
   if (!reply) {
     return {
       ok: false,
@@ -516,9 +525,19 @@ export async function runFundlyAiChat(opts: {
   })
 
   if (winner.ok) return winner
+
+  const detail = winner.error || 'Coach failed'
+  const busyLike =
+    winner.status === 429 ||
+    winner.status === 503 ||
+    winner.status === 504 ||
+    /timed out|timeout|high demand|resource exhausted|unavailable|overloaded|busy/i.test(detail)
+
   return {
     ok: false,
-    error: 'Coach is busy right now. Wait a few seconds and try again.',
+    error: busyLike
+      ? 'Coach is busy right now. Wait a few seconds and try again.'
+      : detail,
     status: winner.status || 503,
   }
 }
